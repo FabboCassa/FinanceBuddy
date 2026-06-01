@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: fb_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=finance_buddy
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres_pwd
+    ports:
+      - "5435:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: fb_redis
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    container_name: fb_web
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
+      - DB_NAME=finance_buddy
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres_pwd
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_REAL_NLP=False
+    depends_on:
+      - db
+      - redis
+
+  celery_worker:
+    build: .
+    container_name: fb_celery_worker
+    command: celery -A finance_buddy worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
+      - DB_NAME=finance_buddy
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres_pwd
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_REAL_NLP=False
+    depends_on:
+      - db
+      - redis
+
+  celery_beat:
+    build: .
+    container_name: fb_celery_beat
+    command: celery -A finance_buddy beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
+      - DB_NAME=finance_buddy
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres_pwd
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_REAL_NLP=False
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:
