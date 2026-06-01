@@ -27,8 +27,12 @@ share/python-wheels/
 
 # Database and env
 .env
+!.env.example
 db.sqlite3
 db.sqlite3-journal
+
+# Django collected static
+staticfiles/
 
 # Celery
 celerybeat-schedule

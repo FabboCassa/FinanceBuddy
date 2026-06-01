@@ -1,4 +1,33 @@
-version: '3.8'
+# Shared app environment (DRY via YAML anchor). Per-service overrides extend it.
+# Secrets are read from the gitignored .env via ${VAR:-default} interpolation, so
+# this committed file never contains real credentials. Set real values in .env.
+x-app-env: &app-env
+  DEBUG: "${DEBUG:-True}"
+  SECRET_KEY: "${SECRET_KEY:-django-insecure-dev-only-change-me}"
+  DB_NAME: "${DB_NAME:-finance_buddy}"
+  DB_USER: "${DB_USER:-postgres}"
+  DB_PASSWORD: "${DB_PASSWORD:-postgres_pwd}"
+  DB_HOST: db
+  DB_PORT: "5432"
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/0
+  USE_REAL_NLP: "${USE_REAL_NLP:-False}"
+  HF_HOME: /models/huggingface
+  # Alert channels (optional; empty → channel skipped). Real values in .env.
+  TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+  TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
+  DISCORD_WEBHOOK_URL: "${DISCORD_WEBHOOK_URL:-}"
+  ALERT_EMAIL_RECIPIENTS: "${ALERT_EMAIL_RECIPIENTS:-}"
+
+x-app-build: &app-build
+  build: .
+  volumes:
+    - .:/app
+    - hf_cache:/models/huggingface
+  depends_on:
+    - db
+    - redis
 
 services:
   db:
@@ -7,9 +36,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
-      - POSTGRES_DB=finance_buddy
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres_pwd
+      - POSTGRES_DB=${DB_NAME:-finance_buddy}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres_pwd}
     ports:
       - "5435:5432"
 
@@ -19,73 +48,40 @@ services:
     ports:
       - "6379:6379"
 
+  # Web is the single owner of migrations + Phase 1 bootstrap on startup.
   web:
-    build: .
+    <<: *app-build
     container_name: fb_web
     command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=True
-      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
-      - DB_NAME=finance_buddy
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres_pwd
-      - DB_HOST=db
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - USE_REAL_NLP=False
-    depends_on:
-      - db
-      - redis
+      <<: *app-env
+      RUN_MIGRATIONS: "True"
+      RUN_BOOTSTRAP: "True"
 
   celery_worker:
-    build: .
+    <<: *app-build
     container_name: fb_celery_worker
     command: celery -A finance_buddy worker --loglevel=info
-    volumes:
-      - .:/app
     environment:
-      - DEBUG=True
-      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
-      - DB_NAME=finance_buddy
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres_pwd
-      - DB_HOST=db
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - USE_REAL_NLP=False
+      <<: *app-env
     depends_on:
       - db
       - redis
+      - web
 
   celery_beat:
-    build: .
+    <<: *app-build
     container_name: fb_celery_beat
     command: celery -A finance_buddy beat --loglevel=info
-    volumes:
-      - .:/app
     environment:
-      - DEBUG=True
-      - SECRET_KEY=django-insecure-highly-secret-dev-key-12345
-      - DB_NAME=finance_buddy
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres_pwd
-      - DB_HOST=db
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - USE_REAL_NLP=False
+      <<: *app-env
     depends_on:
       - db
       - redis
+      - web
 
 volumes:
   postgres_data:
+  hf_cache:

@@ -1,12 +1,16 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from django.views.generic import TemplateView
 from django.utils import timezone
 import datetime
 
-from core.models import Asset, PriceData, NewsArticle
-from core.serializers import AssetSerializer, PriceDataSerializer, NewsArticleSerializer
+from core.models import Asset, PriceData, NewsArticle, Alert
+from core.serializers import (
+    AssetSerializer, PriceDataSerializer, NewsArticleSerializer, AlertSerializer,
+)
+from core import indicators, correlation
 
 
 class AssetViewSet(viewsets.ModelViewSet):
@@ -87,6 +91,78 @@ class NewsArticleViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(asset_id=asset_id)
             
         return queryset
+
+
+class IndicatorsView(APIView):
+    """
+    Phase 2 endpoint: technical-analysis indicators for a single asset.
+
+    GET /api/indicators/?asset=<symbol> → chart-ready EMA/RSI/MACD series
+    computed server-side from the stored close prices (ordered by timestamp).
+    """
+
+    def get(self, request):
+        symbol = request.query_params.get('asset')
+        if not symbol:
+            return Response(
+                {'detail': "Query param 'asset' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows = (PriceData.objects
+                .filter(asset_id=symbol)
+                .order_by('timestamp')
+                .values_list('timestamp', 'close'))
+        if not rows:
+            return Response({
+                'ema20': [], 'ema50': [], 'ema200': [],
+                'rsi': [], 'macd': [], 'macd_signal': [], 'macd_hist': [],
+            })
+
+        timestamps = [r[0] for r in rows]
+        closes = [r[1] for r in rows]
+        return Response(indicators.compute_indicators(timestamps, closes))
+
+
+class AlertViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint exposing fired sentiment alerts (most recent first).
+    Optional filtering by 'asset' (symbol).
+    """
+    serializer_class = AlertSerializer
+
+    def get_queryset(self):
+        queryset = Alert.objects.all().order_by('-created_at')
+        asset_id = self.request.query_params.get('asset')
+        if asset_id:
+            queryset = queryset.filter(asset_id=asset_id)
+        return queryset
+
+
+class CorrelationView(APIView):
+    """
+    Phase 2 endpoint: sentiment ↔ forward-return correlation for one asset.
+
+    GET /api/correlation/?asset=<symbol> → Pearson/Spearman coefficients and
+    mean forward return at 1/3/7-day horizons, computed server-side.
+    """
+
+    def get(self, request):
+        symbol = request.query_params.get('asset')
+        if not symbol:
+            return Response(
+                {'detail': "Query param 'asset' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        news = list(NewsArticle.objects
+                    .filter(asset_id=symbol, sentiment_score__isnull=False)
+                    .values('timestamp', 'sentiment_score'))
+        prices = (PriceData.objects
+                  .filter(asset_id=symbol)
+                  .order_by('timestamp')
+                  .values_list('timestamp', 'close'))
+        return Response(correlation.compute_sentiment_correlation(news, prices))
 
 
 class DashboardView(TemplateView):

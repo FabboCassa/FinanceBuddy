@@ -5,6 +5,7 @@ psycopg2-binary>=2.9.9
 celery>=5.3.6
 redis>=5.0.1
 yfinance>=0.2.38
+pandas>=2.2.0
 transformers>=4.38.0
 torch>=2.2.0
 requests>=2.31.0

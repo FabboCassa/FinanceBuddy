@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from celery.schedules import crontab
 
+from core import constants
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -149,7 +151,36 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'core.tasks.analyze_sentiment',
         'schedule': crontab(minute='*/30'),
     },
+    'check-sentiment-alerts-every-30-min': {
+        'task': 'core.tasks.check_sentiment_alerts',
+        'schedule': crontab(minute='*/30'),
+    },
 }
 
 # Sentiment NLP flag
 USE_REAL_NLP = os.environ.get('USE_REAL_NLP', 'False') == 'True'
+
+# -- Sentiment alerting (Phase 2) -------------------------------------------
+# Thresholds default to core.constants but can be overridden per-deployment.
+SENTIMENT_ALERT_LOW = float(os.environ.get('SENTIMENT_ALERT_LOW', constants.SENTIMENT_ALERT_LOW))
+SENTIMENT_ALERT_HIGH = float(os.environ.get('SENTIMENT_ALERT_HIGH', constants.SENTIMENT_ALERT_HIGH))
+ALERT_LOOKBACK_HOURS = int(os.environ.get('ALERT_LOOKBACK_HOURS', constants.ALERT_LOOKBACK_HOURS))
+ALERT_COOLDOWN_HOURS = int(os.environ.get('ALERT_COOLDOWN_HOURS', constants.ALERT_COOLDOWN_HOURS))
+ALERT_MIN_ARTICLES = int(os.environ.get('ALERT_MIN_ARTICLES', constants.ALERT_MIN_ARTICLES))
+
+# Alert delivery channels (all optional; absent → channel skipped).
+TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
+DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL', '')
+
+# Email channel (uses console backend in dev so it never crashes unconfigured).
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'finance-buddy@localhost')
+ALERT_EMAIL_RECIPIENTS = [
+    e.strip() for e in os.environ.get('ALERT_EMAIL_RECIPIENTS', '').split(',') if e.strip()
+]

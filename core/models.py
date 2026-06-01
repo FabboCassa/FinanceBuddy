@@ -62,3 +62,30 @@ class NewsArticle(models.Model):
 
     def __str__(self):
         return f"{self.asset.symbol} - {self.title[:50]}... [{self.sentiment_label or 'No Sentiment'}]"
+
+
+class Alert(models.Model):
+    """A fired sentiment-threshold alert (Phase 2).
+
+    Persisted to support cooldown/dedupe and to surface a history in the UI.
+    """
+    LEVELS = [
+        ('Positivo', 'Positivo'),
+        ('Negativo', 'Negativo'),
+    ]
+
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='alerts')
+    level = models.CharField(max_length=15, choices=LEVELS)
+    avg_sentiment = models.FloatField(help_text="Rolling average sentiment that triggered the alert.")
+    article_count = models.PositiveIntegerField(default=0)
+    message = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['asset', 'level', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.level}] {self.asset.symbol} @ {self.created_at:%Y-%m-%d %H:%M} (avg={self.avg_sentiment:.2f})"

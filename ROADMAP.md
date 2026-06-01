@@ -65,12 +65,13 @@ graph TD
 **Obiettivo:** Estendere le fonti informative e addestrare modelli predittivi calibrati specificamente sulla propria cronologia locale di trading.
 
 * **Funzionalità:**
+  * **Filtro di Rilevanza Auto-Appreso (Self-Calibrating):** L'obiettivo finale è che il sistema **impari da solo** cosa è rilevante osservando la reazione di mercato alle notizie su una finestra lunga (~1 anno), senza regole scritte a mano. Pipeline a feedback: per ogni articolo si registra l'**impatto di prezzo forward** (rendimento a 1/3/7gg → vedi matrice di correlazione, Fase 2), si accumulano gli esempi e si addestra/aggiorna un classificatore che apprende quali temi muovono davvero il prezzo. Categorie d'interesse note a priori per il bootstrap: **earnings/bilanci, guidance, M&A, regolatorio/antitrust, geopolitica, politica monetaria/tassi, conferenze ed eventi aziendali**; rumore da scartare: cronaca nera, gossip, sport. Aggiungere al modello `NewsArticle` i campi `category`, `is_relevant` e `forward_impact` ed esporre il filtro in dashboard. Approccio incrementale: (1) keyword per tema (cold-start), (2) *zero-shot* NLI (es. `facebook/bart-large-mnli`), (3) **classificatore auto-supervisionato fine-tuned** etichettato dall'impatto di prezzo reale.
   * **Scrapers Avanzati:** Aggregare notizie non solo da Yahoo Finance, ma anche da Reddit (es. *r/wallstreetbets*, *r/investing*), canali Telegram finanziari, e profili chiave su Twitter/X.
   * **Fine-Tuning Locale:** Utilizzare lo storico dei prezzi e delle notizie salvate localmente per addestrare un classificatore leggero sopra le rappresentazioni (embeddings) di FinBERT, adattando l'AI al linguaggio specifico degli asset scelti.
   * **Riconoscimento delle Entità (NER):** Rilevare automaticamente quali asset sono citati in un articolo generico di notizie, correlando le entità senza configurarle manualmente.
 * **Tecnologie:**
   * **Scraping:** `Scrapy`, `BeautifulSoup4`, `Selenium` (per pagine web dinamiche), Reddit API (`PRAW`), Twitter API.
-  * **AI & Training:** `PyTorch`, `HuggingFace AutoTrain`, `scikit-learn` per addestrare classificatori personalizzati.
+  * **AI & Training:** `PyTorch`, `HuggingFace AutoTrain`, `scikit-learn` per addestrare classificatori personalizzati; modelli *zero-shot* NLI per la categorizzazione tematica senza training.
 
 ---
 

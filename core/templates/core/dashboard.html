@@ -16,8 +16,8 @@
     <!-- Alpine.js (via CDN) -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     
-    <!-- TradingView Lightweight Charts (via CDN) -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- TradingView Lightweight Charts (via CDN, pinned to v4 API) -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     
     <!-- FontAwesome for Premium Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -244,15 +244,29 @@
                 <!-- MAIN CHART SECTION -->
                 <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-brand-500/5 to-transparent pointer-events-none"></div>
-                    <div class="flex items-center justify-between mb-4 relative z-10">
+                    <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
                         <div>
-                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight">Storico Prezzi e Notizie</h2>
-                            <p class="text-xs text-slate-400">Combina le candele di mercato con il sentiment dei marker degli articoli di notizie</p>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight">Storico Prezzi, Indicatori e Notizie</h2>
+                            <p class="text-xs text-slate-400">Candele di mercato con EMA, marker di sentiment e indicatori tecnici (RSI, MACD)</p>
                         </div>
-                        <div class="flex items-center space-x-2 text-xxs bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
-                            <span class="flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-full bg-accent-emerald"></span><span class="text-xs text-slate-300">Positivo</span></span>
-                            <span class="flex items-center space-x-1 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-accent-amber"></span><span class="text-xs text-slate-300">Neutrale</span></span>
-                            <span class="flex items-center space-x-1 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-accent-rose"></span><span class="text-xs text-slate-300">Negativo</span></span>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <!-- EMA toggles -->
+                            <div class="flex items-center space-x-1.5 text-xxs bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                                <template x-for="ema in emaConfig" :key="ema.period">
+                                    <button @click="toggleEma(ema.period)"
+                                            class="px-2 py-0.5 rounded text-xs font-semibold border transition-all"
+                                            :style="emaVisible[ema.period] ? ('color:' + ema.color + ';border-color:' + ema.color + '55;background:' + ema.color + '14') : ''"
+                                            :class="emaVisible[ema.period] ? '' : 'text-slate-500 border-slate-800 bg-slate-900/40'">
+                                        <span x-text="'EMA' + ema.period"></span>
+                                    </button>
+                                </template>
+                            </div>
+                            <!-- Sentiment marker legend -->
+                            <div class="flex items-center space-x-2 text-xxs bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                                <span class="flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-full bg-accent-emerald"></span><span class="text-xs text-slate-300">Positivo</span></span>
+                                <span class="flex items-center space-x-1 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-accent-amber"></span><span class="text-xs text-slate-300">Neutrale</span></span>
+                                <span class="flex items-center space-x-1 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-accent-rose"></span><span class="text-xs text-slate-300">Negativo</span></span>
+                            </div>
                         </div>
                     </div>
 
@@ -270,6 +284,28 @@
                             <h3 class="text-base font-bold text-white mb-1">Nessun Dato di Prezzo Disponibile</h3>
                             <p class="text-xs text-slate-400 max-w-sm mb-4">Usa il pulsante "Aggiorna Dati" in alto per attivare il download della cronologia delle quotazioni da yfinance.</p>
                             <button @click="syncActiveAsset()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-xl text-xs font-semibold text-white transition-all">Scarica Dati Ora</button>
+                        </div>
+                    </div>
+
+                    <!-- Technical Indicator Sub-Panes (RSI + MACD) -->
+                    <div x-show="chartDataLength > 0" class="mt-4 space-y-4 relative z-10">
+                        <!-- RSI Pane -->
+                        <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner">
+                            <div class="flex items-center justify-between px-2 pt-1 pb-2">
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">RSI <span class="text-slate-500 font-normal">(14)</span></span>
+                                <span class="text-xs font-semibold" x-text="taSummary.rsiText"
+                                      :class="taSummary.rsi >= 70 ? 'text-accent-rose' : (taSummary.rsi <= 30 ? 'text-accent-emerald' : 'text-slate-400')"></span>
+                            </div>
+                            <div id="rsi-canvas" class="w-full" style="height: 140px;"></div>
+                        </div>
+                        <!-- MACD Pane -->
+                        <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner">
+                            <div class="flex items-center justify-between px-2 pt-1 pb-2">
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">MACD <span class="text-slate-500 font-normal">(12, 26, 9)</span></span>
+                                <span class="text-xs font-semibold" x-text="taSummary.macdText"
+                                      :class="taSummary.macdHist >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"></span>
+                            </div>
+                            <div id="macd-canvas" class="w-full" style="height: 150px;"></div>
                         </div>
                     </div>
                 </div>
@@ -302,24 +338,41 @@
                                 </div>
                             </div>
 
-                            <!-- Correlation Stats Metric 1 -->
+                            <!-- Correlation Matrix (sentiment ↔ forward return) -->
                             <div class="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 space-y-2">
-                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Relazione Causa/Effetto</h4>
-                                
-                                <div class="space-y-3 text-xs">
-                                    <div class="flex justify-between items-center py-1.5 border-b border-slate-800/50">
-                                        <span class="text-slate-400">Affidabilità Sentiment Positivo:</span>
-                                        <span class="font-extrabold text-accent-emerald" x-text="stats.positiveAccuracy + '%'"></span>
-                                    </div>
-                                    <div class="flex justify-between items-center py-1.5 border-b border-slate-800/50">
-                                        <span class="text-slate-400">Affidabilità Sentiment Negativo:</span>
-                                        <span class="font-extrabold text-accent-rose" x-text="stats.negativeAccuracy + '%'"></span>
-                                    </div>
-                                    <div class="flex justify-between items-center py-1.5">
-                                        <span class="text-slate-400">Rendimento Medio post-News (+24h):</span>
-                                        <span class="font-extrabold text-white" :class="stats.avgImpact >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="stats.avgImpactText"></span>
-                                    </div>
-                                </div>
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>Matrice di Correlazione</span>
+                                    <span class="text-[10px] font-semibold text-slate-500 normal-case" x-text="correlation.sample_size + ' news'"></span>
+                                </h4>
+                                <p class="text-[10px] text-slate-500 mb-2">Sentiment vs variazione di prezzo (Pearson / Spearman) su orizzonti futuri.</p>
+
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-800/60">
+                                            <th class="text-left font-semibold py-1">Oriz.</th>
+                                            <th class="text-right font-semibold py-1">Pearson</th>
+                                            <th class="text-right font-semibold py-1">Spearman</th>
+                                            <th class="text-right font-semibold py-1">Rend.</th>
+                                            <th class="text-right font-semibold py-1">n</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="h in correlation.horizons" :key="h.days">
+                                            <tr class="border-b border-slate-800/40 last:border-0">
+                                                <td class="py-1.5 font-semibold text-slate-300" x-text="h.days + 'g'"></td>
+                                                <td class="py-1.5 text-right font-bold" :class="corrColor(h.pearson)" x-text="fmtCoef(h.pearson)"></td>
+                                                <td class="py-1.5 text-right font-bold" :class="corrColor(h.spearman)" x-text="fmtCoef(h.spearman)"></td>
+                                                <td class="py-1.5 text-right" :class="h.avg_return >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="h.avg_return === null ? '—' : (h.avg_return >= 0 ? '+' : '') + h.avg_return.toFixed(2) + '%'"></td>
+                                                <td class="py-1.5 text-right text-slate-500" x-text="h.n"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+
+                                <p x-show="correlationInsufficient" class="text-[10px] text-amber-400/80 bg-amber-950/30 border border-amber-800/30 rounded-lg p-2 mt-2 leading-relaxed">
+                                    <i class="fa-solid fa-seedling mr-1"></i>
+                                    Dati ancora insufficienti: servono notizie con almeno 1–7 giorni di prezzi successivi. Il sistema si auto-calibra accumulando storico nel tempo.
+                                </p>
                             </div>
 
                             <!-- Predictive AI box -->
@@ -329,6 +382,30 @@
                                 </div>
                                 <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider mb-1">Trading Signal</h4>
                                 <p class="text-xs text-slate-300 leading-relaxed font-medium" x-text="stats.aiSummary"></p>
+                            </div>
+
+                            <!-- Recent Sentiment Alerts -->
+                            <div class="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4">
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
+                                    <span><i class="fa-solid fa-bell mr-1.5 text-brand-400"></i>Alert Sentiment</span>
+                                    <span class="text-[10px] font-semibold text-slate-500 normal-case" x-text="alerts.length + ' totali'"></span>
+                                </h4>
+                                <template x-if="alerts.length === 0">
+                                    <p class="text-[10px] text-slate-500 leading-relaxed">Nessun alert. Scattano automaticamente quando il sentiment medio supera le soglie configurate.</p>
+                                </template>
+                                <div class="space-y-2" x-show="alerts.length > 0">
+                                    <template x-for="al in alerts.slice(0, 5)" :key="al.id">
+                                        <div class="flex items-start space-x-2 text-xs p-2 rounded-lg border-l-2 bg-slate-900/40"
+                                             :class="al.level === 'Negativo' ? 'border-l-accent-rose' : 'border-l-accent-emerald'">
+                                            <i class="fa-solid mt-0.5"
+                                               :class="al.level === 'Negativo' ? 'fa-arrow-trend-down text-accent-rose' : 'fa-arrow-trend-up text-accent-emerald'"></i>
+                                            <div class="flex-1">
+                                                <p class="text-slate-300 leading-snug" x-text="al.message"></p>
+                                                <span class="text-[10px] text-slate-500" x-text="formatDate(al.created_at)"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -416,11 +493,27 @@
                 activeAsset: null,
                 prices: [],
                 news: [],
+                indicators: {},
+                correlation: { sample_size: 0, horizons: [] },
+                alerts: [],
                 selectedArticle: null,
                 syncing: false,
                 loadingChart: false,
                 chartDataLength: 0,
                 alertMessage: '',
+
+                // Technical-indicator UI config + state
+                emaConfig: [
+                    { period: 20, color: '#38bdf8' },
+                    { period: 50, color: '#f59e0b' },
+                    { period: 200, color: '#a78bfa' },
+                ],
+                emaVisible: { 20: true, 50: true, 200: true },
+                emaSeries: {},
+                rsiChart: null, rsiSeries: null,
+                macdChart: null, macdLineSeries: null, macdSignalSeries: null, macdHistSeries: null,
+                taSummary: { rsi: null, rsiText: '—', macdHist: 0, macdText: '—' },
+                _syncingScales: false,
                 newAsset: {
                     symbol: '',
                     name: '',
@@ -446,12 +539,14 @@
                     
                     // Handle window resize dynamically for responsive chart
                     window.addEventListener('resize', () => {
-                        if (this.chart) {
-                            const container = document.getElementById('chart-canvas');
-                            if (container) {
-                                this.chart.resize(container.clientWidth, 400);
-                            }
-                        }
+                        const fit = (chart, id, h) => {
+                            if (!chart) return;
+                            const el = document.getElementById(id);
+                            if (el) chart.resize(el.clientWidth, h);
+                        };
+                        fit(this.chart, 'chart-canvas', 400);
+                        fit(this.rsiChart, 'rsi-canvas', 140);
+                        fit(this.macdChart, 'macd-canvas', 150);
                     });
                 },
 
@@ -481,16 +576,22 @@
                     this.loadingChart = true;
                     const symbol = this.activeAsset.symbol;
 
-                    // Promise chain to pull prices and news
+                    // Promise chain to pull prices, news and technical indicators
                     Promise.all([
                         fetch(`/api/prices/?asset=${symbol}`).then(res => res.json()),
-                        fetch(`/api/news/?asset=${symbol}`).then(res => res.json())
+                        fetch(`/api/news/?asset=${symbol}`).then(res => res.json()),
+                        fetch(`/api/indicators/?asset=${symbol}`).then(res => res.json()),
+                        fetch(`/api/correlation/?asset=${symbol}`).then(res => res.json()),
+                        fetch(`/api/alerts/?asset=${symbol}`).then(res => res.json())
                     ])
-                    .then(([priceData, newsData]) => {
+                    .then(([priceData, newsData, indicatorData, correlationData, alertData]) => {
                         this.prices = priceData;
                         this.news = newsData;
+                        this.indicators = indicatorData || {};
+                        this.correlation = correlationData || { sample_size: 0, horizons: [] };
+                        this.alerts = alertData || [];
                         this.chartDataLength = priceData.length;
-                        
+
                         this.renderChart();
                         this.calculateStats();
                         this.loadingChart = false;
@@ -575,6 +676,23 @@
 
                     this.candlestickSeries.setData(chartCandles);
 
+                    // 2b. Overlay EMA line series on the price scale
+                    this.emaSeries = {};
+                    this.emaConfig.forEach(cfg => {
+                        const data = this.indicators['ema' + cfg.period] || [];
+                        if (data.length === 0) return;
+                        const series = this.chart.addLineSeries({
+                            color: cfg.color,
+                            lineWidth: 2,
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            visible: this.emaVisible[cfg.period],
+                            crosshairMarkerVisible: false,
+                        });
+                        series.setData(data);
+                        this.emaSeries[cfg.period] = series;
+                    });
+
                     // 3. Build & Inject News Markers
                     const chartMarkers = [];
                     
@@ -614,6 +732,106 @@
                             this.selectedArticle = marker.fullArticle;
                         }
                     });
+
+                    // 5. Render technical sub-panes (RSI, MACD) + sync time scales
+                    this.renderIndicatorPanes();
+                    this.syncTimeScales();
+                    this.updateTaSummary();
+                },
+
+                renderIndicatorPanes() {
+                    this.cleanupIndicatorCharts();
+
+                    const baseChartOptions = (container) => ({
+                        width: container.clientWidth,
+                        height: container.clientHeight,
+                        layout: {
+                            background: { type: 'solid', color: 'transparent' },
+                            textColor: '#94a3b8',
+                            fontFamily: 'Inter',
+                        },
+                        grid: {
+                            vertLines: { color: 'rgba(51, 65, 85, 0.15)' },
+                            horzLines: { color: 'rgba(51, 65, 85, 0.15)' },
+                        },
+                        rightPriceScale: { borderColor: 'rgba(51, 65, 85, 0.3)' },
+                        timeScale: { borderColor: 'rgba(51, 65, 85, 0.3)', timeVisible: true, secondsVisible: false },
+                        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    });
+
+                    // --- RSI pane ---
+                    const rsiContainer = document.getElementById('rsi-canvas');
+                    if (rsiContainer && (this.indicators.rsi || []).length > 0) {
+                        rsiContainer.innerHTML = '';
+                        this.rsiChart = LightweightCharts.createChart(rsiContainer, baseChartOptions(rsiContainer));
+                        this.rsiSeries = this.rsiChart.addLineSeries({ color: '#6366f1', lineWidth: 2, priceLineVisible: false });
+                        this.rsiSeries.setData(this.indicators.rsi);
+                        // Overbought / oversold guide lines
+                        this.rsiSeries.createPriceLine({ price: 70, color: 'rgba(244,63,94,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '70' });
+                        this.rsiSeries.createPriceLine({ price: 30, color: 'rgba(16,185,129,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '30' });
+                    }
+
+                    // --- MACD pane ---
+                    const macdContainer = document.getElementById('macd-canvas');
+                    if (macdContainer && (this.indicators.macd || []).length > 0) {
+                        macdContainer.innerHTML = '';
+                        this.macdChart = LightweightCharts.createChart(macdContainer, baseChartOptions(macdContainer));
+                        this.macdHistSeries = this.macdChart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+                        const histData = (this.indicators.macd_hist || []).map(p => ({
+                            time: p.time, value: p.value,
+                            color: p.value >= 0 ? 'rgba(16,185,129,0.55)' : 'rgba(244,63,94,0.55)'
+                        }));
+                        this.macdHistSeries.setData(histData);
+                        this.macdLineSeries = this.macdChart.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+                        this.macdLineSeries.setData(this.indicators.macd);
+                        this.macdSignalSeries = this.macdChart.addLineSeries({ color: '#f59e0b', lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+                        this.macdSignalSeries.setData(this.indicators.macd_signal || []);
+                    }
+                },
+
+                cleanupIndicatorCharts() {
+                    if (this.rsiChart) { this.rsiChart.remove(); this.rsiChart = null; }
+                    if (this.macdChart) { this.macdChart.remove(); this.macdChart = null; }
+                },
+
+                syncTimeScales() {
+                    const charts = [this.chart, this.rsiChart, this.macdChart].filter(Boolean);
+                    if (charts.length < 2) return;
+
+                    charts.forEach(source => {
+                        source.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                            if (this._syncingScales || !range) return;
+                            this._syncingScales = true;
+                            charts.forEach(target => {
+                                if (target !== source) target.timeScale().setVisibleLogicalRange(range);
+                            });
+                            this._syncingScales = false;
+                        });
+                    });
+                },
+
+                toggleEma(period) {
+                    this.emaVisible[period] = !this.emaVisible[period];
+                    const series = this.emaSeries[period];
+                    if (series) series.applyOptions({ visible: this.emaVisible[period] });
+                },
+
+                updateTaSummary() {
+                    const rsiArr = this.indicators.rsi || [];
+                    const histArr = this.indicators.macd_hist || [];
+                    const lastRsi = rsiArr.length ? rsiArr[rsiArr.length - 1].value : null;
+                    const lastHist = histArr.length ? histArr[histArr.length - 1].value : 0;
+
+                    let rsiText = '—';
+                    if (lastRsi !== null) {
+                        const zone = lastRsi >= 70 ? 'Ipercomprato' : (lastRsi <= 30 ? 'Ipervenduto' : 'Neutro');
+                        rsiText = lastRsi.toFixed(1) + ' · ' + zone;
+                    }
+                    const macdText = histArr.length
+                        ? (lastHist >= 0 ? 'Momentum rialzista' : 'Momentum ribassista')
+                        : '—';
+
+                    this.taSummary = { rsi: lastRsi, rsiText, macdHist: lastHist, macdText };
                 },
 
                 findClosestCandle(newsTimestampEpoch) {
@@ -852,6 +1070,22 @@
                         }
                     })
                     .catch(err => console.error(err));
+                },
+
+                get correlationInsufficient() {
+                    const h = this.correlation.horizons || [];
+                    return h.length === 0 || h.every(x => x.n === 0);
+                },
+
+                fmtCoef(value) {
+                    return (value === null || value === undefined) ? '—' : value.toFixed(2);
+                },
+
+                corrColor(value) {
+                    if (value === null || value === undefined) return 'text-slate-600';
+                    if (value >= 0.3) return 'text-accent-emerald';
+                    if (value <= -0.3) return 'text-accent-rose';
+                    return 'text-slate-300';
                 },
 
                 formatDate(isoString) {
