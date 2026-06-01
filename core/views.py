@@ -10,7 +10,7 @@ from core.models import Asset, PriceData, NewsArticle, Alert
 from core.serializers import (
     AssetSerializer, PriceDataSerializer, NewsArticleSerializer, AlertSerializer,
 )
-from core import indicators, correlation
+from core import indicators, correlation, backtest, constants
 
 
 class AssetViewSet(viewsets.ModelViewSet):
@@ -163,6 +163,65 @@ class CorrelationView(APIView):
                   .order_by('timestamp')
                   .values_list('timestamp', 'close'))
         return Response(correlation.compute_sentiment_correlation(news, prices))
+
+
+def _clamped_float(params, key, default, lo, hi):
+    """Parse a float query param, falling back to `default`, clamped to [lo, hi]."""
+    raw = params.get(key)
+    if raw is None or raw == '':
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, value))
+
+
+class BacktestView(APIView):
+    """
+    Phase 3 endpoint: backtest the sentiment sandbox strategy for one asset.
+
+    GET /api/backtest/?asset=<symbol>&buy_threshold=&sell_threshold=
+        &stop_loss_pct=&sentiment_window_days=&initial_capital=
+
+    Runs the long-only rolling-sentiment strategy over the stored daily history
+    and returns equity curve, trades, buy/sell signals, and risk metrics
+    (Sharpe, Sortino, max drawdown, win rate, alpha vs buy & hold). Tunable
+    params are validated and clamped to sane bounds; omitted ones use the
+    constants.py defaults.
+    """
+
+    def get(self, request):
+        symbol = request.query_params.get('asset')
+        if not symbol:
+            return Response(
+                {'detail': "Query param 'asset' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        p = request.query_params
+        buy = _clamped_float(p, 'buy_threshold', constants.BACKTEST_BUY_THRESHOLD, -1.0, 1.0)
+        sell = _clamped_float(p, 'sell_threshold', constants.BACKTEST_SELL_THRESHOLD, -1.0, 1.0)
+        stop = _clamped_float(p, 'stop_loss_pct', constants.BACKTEST_STOP_LOSS_PCT, 0.0, 1.0)
+        window = int(_clamped_float(p, 'sentiment_window_days',
+                                    constants.BACKTEST_SENTIMENT_WINDOW_DAYS, 1, 365))
+        capital = _clamped_float(p, 'initial_capital',
+                                 constants.BACKTEST_INITIAL_CAPITAL, 1.0, 1e9)
+
+        prices = (PriceData.objects
+                  .filter(asset_id=symbol)
+                  .order_by('timestamp')
+                  .values_list('timestamp', 'close'))
+        news = list(NewsArticle.objects
+                    .filter(asset_id=symbol, sentiment_score__isnull=False)
+                    .values('timestamp', 'sentiment_score'))
+
+        result = backtest.run_backtest(
+            prices, news,
+            buy_threshold=buy, sell_threshold=sell, stop_loss_pct=stop,
+            sentiment_window_days=window, initial_capital=capital,
+        )
+        return Response(result)
 
 
 class DashboardView(TemplateView):

@@ -67,3 +67,21 @@ ALERT_LOOKBACK_HOURS = 24
 ALERT_COOLDOWN_HOURS = 12
 # Minimum scored articles in the window before an alert may fire.
 ALERT_MIN_ARTICLES = 3
+
+# -- Phase 3: Sentiment-strategy backtesting defaults -----------------------
+# Long-only sandbox strategy: go fully long when the rolling-average sentiment
+# rises at/above BUY, flatten when it falls at/below SELL or a stop-loss trips.
+# Scale matches sentiment_score (-1.0 … +1.0).
+BACKTEST_BUY_THRESHOLD = 0.5
+BACKTEST_SELL_THRESHOLD = 0.1
+# Trailing window (calendar days) for the rolling mean of daily sentiment.
+BACKTEST_SENTIMENT_WINDOW_DAYS = 3
+# Stop-loss: exit if close falls this fraction below the entry price (0 = off).
+BACKTEST_STOP_LOSS_PCT = 0.03
+# Starting virtual capital for the equity curve.
+BACKTEST_INITIAL_CAPITAL = 10000.0
+# Annualization + risk-free assumptions for risk-adjusted ratios.
+BACKTEST_TRADING_DAYS_PER_YEAR = 252
+BACKTEST_RISK_FREE_RATE = 0.0
+# Minimum daily closes required before a backtest is attempted.
+BACKTEST_MIN_DAYS = 5

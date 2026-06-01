@@ -44,6 +44,7 @@
                             emerald: '#10b981', // Neon Emerald for Positive
                             rose: '#f43f5e',    // Neon Rose for Negative
                             amber: '#f59e0b',   // Amber for Neutral
+                            violet: '#a78bfa',  // Violet for Backtesting / Phase 3
                         }
                     }
                 }
@@ -480,6 +481,79 @@
 
                 </div>
 
+                <!-- ================= STRATEGY SANDBOX (Phase 3: Backtesting) ================= -->
+                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden" x-show="chartDataLength > 0">
+                    <div class="absolute inset-0 bg-gradient-to-b from-accent-violet/5 to-transparent pointer-events-none"></div>
+                    <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
+                        <div>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
+                                <i class="fa-solid fa-flask-vial text-accent-violet"></i> Strategy Sandbox
+                                <span class="text-xxs font-semibold px-2 py-0.5 rounded bg-accent-violet/15 text-accent-violet border border-accent-violet/25">Backtesting</span>
+                            </h2>
+                            <p class="text-xs text-slate-400">Simula storicamente una strategia long-only guidata dal sentiment (entra ≥ soglia BUY, esce ≤ soglia SELL o su stop-loss)</p>
+                        </div>
+                    </div>
+
+                    <!-- Strategy rule controls -->
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 relative z-10 mb-5">
+                        <div>
+                            <label class="block text-xxs font-semibold text-slate-400 mb-1">Soglia BUY <span class="text-slate-600">(sentiment)</span></label>
+                            <input type="number" step="0.05" min="-1" max="1" x-model.number="backtest.buy_threshold"
+                                   class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-violet focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xxs font-semibold text-slate-400 mb-1">Soglia SELL <span class="text-slate-600">(sentiment)</span></label>
+                            <input type="number" step="0.05" min="-1" max="1" x-model.number="backtest.sell_threshold"
+                                   class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-violet focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xxs font-semibold text-slate-400 mb-1">Stop-loss <span class="text-slate-600">(%)</span></label>
+                            <input type="number" step="0.5" min="0" max="100" x-model.number="backtest.stop_loss_display"
+                                   class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-violet focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xxs font-semibold text-slate-400 mb-1">Finestra <span class="text-slate-600">(giorni)</span></label>
+                            <input type="number" step="1" min="1" max="365" x-model.number="backtest.sentiment_window_days"
+                                   class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-violet focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xxs font-semibold text-slate-400 mb-1">Capitale <span class="text-slate-600">(€)</span></label>
+                            <input type="number" step="1000" min="1" x-model.number="backtest.initial_capital"
+                                   class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-violet focus:outline-none">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 relative z-10 mb-5">
+                        <button @click="runBacktest()" :disabled="runningBacktest"
+                                class="px-5 py-2.5 bg-accent-violet hover:bg-accent-violet/80 disabled:opacity-50 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2">
+                            <i class="fa-solid" :class="runningBacktest ? 'fa-circle-notch animate-spin' : 'fa-play'"></i>
+                            <span x-text="runningBacktest ? 'Simulazione...' : 'Esegui Backtest'"></span>
+                        </button>
+                        <span x-show="backtestResult && backtestResult.insufficient_data" class="text-xs text-accent-amber">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Storico insufficiente per simulare.
+                        </span>
+                    </div>
+
+                    <!-- Metrics + equity curve -->
+                    <div x-show="backtestResult && backtestResult.metrics" class="relative z-10 space-y-4">
+                        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+                            <template x-for="m in backtestMetricCards" :key="m.label">
+                                <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide" x-text="m.label"></p>
+                                    <p class="text-base font-bold font-outfit mt-1" :class="m.cls" x-text="m.value"></p>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner">
+                            <div class="flex items-center justify-between px-2 pt-1 pb-2">
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">Equity Curve <span class="text-slate-500 font-normal">(capitale simulato)</span></span>
+                                <span class="text-xs text-slate-500">Marker BUY/SELL sovrapposti sulle candele sopra</span>
+                            </div>
+                            <div id="equity-canvas" class="w-full" style="height: 200px;"></div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </main>
 
@@ -530,6 +604,21 @@
                     aiSummary: 'Nessun segnale per mancanza di storico sufficiente.'
                 },
                 
+                // Phase 3: Strategy Sandbox (backtesting) state
+                backtest: {
+                    buy_threshold: 0.5,
+                    sell_threshold: 0.1,
+                    stop_loss_display: 3,        // percent, converted to fraction on submit
+                    sentiment_window_days: 3,
+                    initial_capital: 10000,
+                },
+                runningBacktest: false,
+                backtestResult: null,
+                backtestMetricCards: [],
+                equityChart: null,
+                newsMarkers: [],
+                signalMarkers: [],
+
                 // TradingView Chart variables
                 chart: null,
                 candlestickSeries: null,
@@ -547,6 +636,7 @@
                         fit(this.chart, 'chart-canvas', 400);
                         fit(this.rsiChart, 'rsi-canvas', 140);
                         fit(this.macdChart, 'macd-canvas', 150);
+                        fit(this.equityChart, 'equity-canvas', 200);
                     });
                 },
 
@@ -567,6 +657,11 @@
                     this.activeAsset = asset;
                     this.selectedArticle = null;
                     this.alertMessage = '';
+                    // Reset Phase 3 sandbox state for the newly selected asset.
+                    this.backtestResult = null;
+                    this.backtestMetricCards = [];
+                    this.signalMarkers = [];
+                    if (this.equityChart) { this.equityChart.remove(); this.equityChart = null; }
                     this.loadChartAndNews();
                 },
 
@@ -719,8 +814,10 @@
                         }
                     });
 
-                    // Set news markers on time-series
-                    this.candlestickSeries.setMarkers(chartMarkers);
+                    // Set news markers on time-series (kept separately so backtest
+                    // BUY/SELL markers can be overlaid without clobbering them).
+                    this.newsMarkers = chartMarkers;
+                    this.refreshChartMarkers();
 
                     // 4. Attach click listener to highlight corresponding news item
                     this.chart.subscribeClick((param) => {
@@ -951,6 +1048,103 @@
                         avgImpactText: (avgImp >= 0 ? '+' : '') + avgImp.toFixed(2) + '%',
                         aiSummary: aiVerdict
                     };
+                },
+
+                // ---- Phase 3: Strategy Sandbox (backtesting) ----
+                refreshChartMarkers() {
+                    if (!this.candlestickSeries) return;
+                    const all = [...(this.newsMarkers || []), ...(this.signalMarkers || [])];
+                    all.sort((a, b) => a.time - b.time);
+                    this.candlestickSeries.setMarkers(all);
+                },
+
+                runBacktest() {
+                    if (!this.activeAsset || this.runningBacktest) return;
+                    this.runningBacktest = true;
+
+                    const b = this.backtest;
+                    const params = new URLSearchParams({
+                        asset: this.activeAsset.symbol,
+                        buy_threshold: b.buy_threshold,
+                        sell_threshold: b.sell_threshold,
+                        stop_loss_pct: (Number(b.stop_loss_display) || 0) / 100,
+                        sentiment_window_days: b.sentiment_window_days,
+                        initial_capital: b.initial_capital,
+                    });
+
+                    fetch(`/api/backtest/?${params.toString()}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            this.backtestResult = data;
+                            this.buildBacktestMetricCards(data.metrics);
+                            this.overlaySignalMarkers(data.signals || []);
+                            this.$nextTick(() => this.renderEquityChart(data.equity_curve || []));
+                            this.runningBacktest = false;
+                        })
+                        .catch(err => {
+                            console.error('Backtest error:', err);
+                            this.runningBacktest = false;
+                        });
+                },
+
+                buildBacktestMetricCards(m) {
+                    if (!m) { this.backtestMetricCards = []; return; }
+                    const pos = v => v >= 0 ? 'text-accent-emerald' : 'text-accent-rose';
+                    const fmtPct = v => v === null ? 'N/D' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+                    const fmtNum = v => v === null ? 'N/D' : v.toFixed(2);
+                    this.backtestMetricCards = [
+                        { label: 'Rendimento', value: fmtPct(m.total_return_pct), cls: pos(m.total_return_pct) },
+                        { label: 'Buy & Hold', value: fmtPct(m.buy_hold_return_pct), cls: pos(m.buy_hold_return_pct) },
+                        { label: 'Alpha', value: fmtPct(m.alpha_pct), cls: pos(m.alpha_pct) },
+                        { label: 'Sharpe', value: fmtNum(m.sharpe_ratio), cls: 'text-white' },
+                        { label: 'Sortino', value: fmtNum(m.sortino_ratio), cls: 'text-white' },
+                        { label: 'Max Drawdown', value: fmtPct(m.max_drawdown_pct), cls: 'text-accent-rose' },
+                        { label: 'Trade · Win%', value: m.num_trades + ' · ' + (m.win_rate_pct === null ? 'N/D' : m.win_rate_pct + '%'), cls: 'text-slate-300' },
+                    ];
+                },
+
+                overlaySignalMarkers(signals) {
+                    this.signalMarkers = signals.map(s => {
+                        const epochMs = new Date(s.date + 'T00:00:00Z').getTime();
+                        const candle = this.findClosestCandle(epochMs);
+                        if (!candle) return null;
+                        const isBuy = s.type === 'buy';
+                        return {
+                            time: candle.time,
+                            position: isBuy ? 'belowBar' : 'aboveBar',
+                            color: isBuy ? '#a78bfa' : '#f59e0b',
+                            shape: isBuy ? 'arrowUp' : 'arrowDown',
+                            text: isBuy ? 'BUY' : 'SELL',
+                        };
+                    }).filter(Boolean);
+                    this.refreshChartMarkers();
+                },
+
+                renderEquityChart(equityCurve) {
+                    const container = document.getElementById('equity-canvas');
+                    if (!container) return;
+                    if (this.equityChart) { this.equityChart.remove(); this.equityChart = null; }
+                    if (equityCurve.length === 0) return;
+
+                    container.innerHTML = '';
+                    this.equityChart = LightweightCharts.createChart(container, {
+                        width: container.clientWidth,
+                        height: 200,
+                        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8', fontFamily: 'Inter' },
+                        grid: { vertLines: { color: 'rgba(51, 65, 85, 0.15)' }, horzLines: { color: 'rgba(51, 65, 85, 0.15)' } },
+                        rightPriceScale: { borderColor: 'rgba(51, 65, 85, 0.3)' },
+                        timeScale: { borderColor: 'rgba(51, 65, 85, 0.3)', timeVisible: false, secondsVisible: false },
+                        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    });
+                    const area = this.equityChart.addAreaSeries({
+                        lineColor: '#a78bfa', topColor: 'rgba(167,139,250,0.4)', bottomColor: 'rgba(167,139,250,0.02)',
+                        lineWidth: 2, priceLineVisible: false,
+                    });
+                    area.setData(equityCurve.map(p => ({
+                        time: Math.floor(new Date(p.date + 'T00:00:00Z').getTime() / 1000),
+                        value: p.equity,
+                    })));
+                    this.equityChart.timeScale().fitContent();
                 },
 
                 getPriceAtTime(newsTimestamp) {

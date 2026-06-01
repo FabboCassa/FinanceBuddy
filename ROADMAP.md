@@ -10,10 +10,12 @@ graph TD
     P2 --> P3[Phase 3: Backtesting Engine]
     P3 --> P4[Phase 4: Custom AI & Multi-Scrapers]
     P4 --> P5[Phase 5: Live/Paper Trading]
+    P5 --> P6[Phase 6: Knowledge Base / Wiki]
 
     style P1 fill:#6366f1,stroke:#4f46e5,stroke-width:2px,color:#fff
-    style P2 fill:#4f46e5,stroke:#4338ca,stroke-width:1px,color:#fff
-    style P3 fill:#312e81,stroke:#1e1b4b,stroke-width:1px,color:#fff
+    style P2 fill:#4f46e5,stroke:#4338ca,stroke-width:2px,color:#fff
+    style P3 fill:#4338ca,stroke:#3730a3,stroke-width:2px,color:#fff
+    style P6 fill:#312e81,stroke:#1e1b4b,stroke-width:1px,color:#fff
 ```
 
 ---
@@ -47,8 +49,10 @@ graph TD
 
 ---
 
-## 🧪 Fase 3: Motore di Backtesting delle Strategie (Medio Termine)
+## 🧪 Fase 3: Motore di Backtesting delle Strategie ✅ *(Implementata)*
 **Obiettivo:** Testare storicamente le strategie di trading basate sul sentiment per valutare se generano un reale "Alpha" (rendimento extra rispetto al mercato).
+
+> **Stato:** completata con un backtester puro `pandas`/`numpy` ([core/backtest.py](core/backtest.py)) esposto su `/api/backtest/` e una "Strategy Sandbox" in dashboard (input regole, metriche, equity curve, marker BUY/SELL). `TimescaleDB` e `Backtrader`/`PyAlgoTrade` sono stati **rimandati**: il motore puro-pandas basta alla scala attuale ed evita i conflitti con numpy 2.x. Vedi [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
 
 * **Funzionalità:**
   * **Strategia Sandbox:** Permettere all'utente di definire regole di trading (es. *"Compra se il sentiment a 3 giorni sale sopra 0.5; Vendi se scende sotto 0.1 o se si attiva uno stop-loss del 3%"*).
@@ -87,3 +91,29 @@ graph TD
   * **Broker API:** Alpaca Trade API (gratuita per il paper trading), `ib_insync` (per Interactive Brokers), CCXT (per Exchange di Criptovalute).
   * **Sicurezza:** Moduli crittografici di Python (`cryptography.fernet`) per salvare le chiavi API in modo ultra-sicuro nel database.
   * **Real-time WebSockets:** `Django Channels` per lo streaming bidirezionale a bassissima latenza tra server e client.
+
+---
+
+## 📚 Fase 6: Knowledge Base / Wiki Didattica (Fase Finale)
+**Obiettivo:** Rendere la piattaforma **comprensibile a chi non sa nulla di trading**. Una sezione "Wiki" integrata nell'app che spiega — in linguaggio semplice, con esempi concreti e le formule matematiche — **ogni concetto** usato altrove nella dashboard, così che l'utente abbia sempre a portata di click la definizione di ciò che sta guardando.
+
+* **Principi di progettazione (UX):**
+  * **Navigabile, non una lista infinita:** contenuti organizzati in **sezioni tematiche affini** (paragrafi), con indice/sommario laterale (sidebar), ancore per ogni voce e ricerca testuale. Niente muro di termini in ordine sparso.
+  * **Struttura ripetuta per ogni concetto:** *(1) Definizione in una frase → (2) Spiegazione semplice "come se avessi 12 anni" → (3) Esempio numerico concreto → (4) Formula matematica (resa con LaTeX/KaTeX) → (5) "Dove lo vedi nell'app" con link alla card/grafico relativo.*
+  * **Collegamento contestuale:** ogni metrica/grafico nella dashboard espone un'icona "ℹ︎/?" che apre direttamente la voce wiki corrispondente (deep-link ad ancora).
+  * **Bilingue-friendly:** testo in italiano semplice (lingua dell'utente), con il termine inglese standard accanto (es. "Media Mobile Esponenziale — *EMA*").
+
+* **Sezioni tematiche previste (paragrafi):**
+  1. **Concetti di base dei mercati** — prezzo, candela OHLCV, volume, rendimento %, long/short, asset/ETF, timeframe.
+  2. **Analisi del sentiment** — cos'è il sentiment, NLP, FinBERT, score (−1…+1) ed etichette, fallback a parole chiave.
+  3. **Analisi tecnica (indicatori)** — Media Mobile Esponenziale (EMA 20/50/200), RSI (ipercomprato/ipervenduto), MACD (linea/segnale/istogramma); ciascuno con formula.
+  4. **Statistica & correlazione** — correlazione di Pearson e Spearman, coefficiente, *forward return* a 1/3/7 giorni, campione minimo, causa≠effetto.
+  5. **Strategia & backtesting** — cos'è una strategia, regole di entrata/uscita, stop-loss, *backtest*, *look-ahead bias*, perché serve storico.
+  6. **Metriche di performance** — Equity Curve, Rendimento totale vs *Buy & Hold*, **Alpha**, **Sharpe Ratio**, **Sortino Ratio**, **Maximum Drawdown**, *win rate*; ognuna con formula ed esempio.
+  7. **Rischio & avvertenze** — volatilità, rischio di perdita, limiti dei dati, "i rendimenti passati non garantiscono quelli futuri".
+  8. **Glossario rapido** — indice alfabetico che rimanda alle voci sopra (per chi cerca un singolo termine).
+
+* **Tecnologie:**
+  * **Frontend:** pagina/route dedicata (`/wiki`) nel template Django, stesso design system (TailwindCSS, glassmorphism, Alpine.js per ricerca/filtro e indice attivo allo scroll).
+  * **Formule:** **KaTeX** (via CDN) per il rendering matematico leggero e veloce.
+  * **Contenuti:** sorgente in Markdown reso server-side, oppure sezioni statiche nel template; nessuna dipendenza pesante. Una singola fonte di verità per le definizioni, riusabile dai tooltip contestuali della dashboard.

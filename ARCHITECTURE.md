@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-01 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-01 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -27,7 +27,7 @@ through a REST API + single-page dashboard.
 | Database    | PostgreSQL 15 (Alpine)                                             |
 | NLP         | HuggingFace Transformers (ProsusAI/finbert), PyTorch (CPU-only)   |
 | Data feed   | yfinance (prices + news)                                          |
-| TA / math   | pandas (pure-pandas EMA/RSI/MACD; pandas-ta avoided — numpy 2.x)  |
+| TA / math   | pandas + numpy (pure-pandas EMA/RSI/MACD + backtester; Backtrader/pandas-ta avoided — numpy 2.x) |
 | Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned) |
 | Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat)       |
 
@@ -56,12 +56,13 @@ FinanceBuddy/
     ├── indicators.py          # Phase 2: pure-pandas EMA/RSI/MACD compute helpers
     ├── correlation.py         # Phase 2: sentiment↔forward-return correlation (Pearson/Spearman)
     ├── alerts.py              # Phase 2: sentiment-threshold eval + multi-channel dispatch
-    ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation + Dashboard
+    ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester
+    ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation/Backtest + Dashboard
     ├── tasks.py               # Celery tasks (incl. startup_catch_up) + ingest/scoring helpers
     ├── migrations/            # 0001_initial, 0002_alert …
     ├── management/commands/
     │   └── bootstrap_assets.py  # Phase 1 idempotent seeding command
-    ├── tests/                 # Unit tests (test_indicators.py …)
+    ├── tests/                 # Unit tests (test_indicators.py, test_backtest.py …)
     └── templates/core/dashboard.html
 ```
 
@@ -115,6 +116,7 @@ beat ──schedule──► worker
 web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (charts)
    /api/indicators/  → indicators.compute_indicators(close series) → EMA/RSI/MACD JSON
    /api/correlation/ → correlation.compute_sentiment_correlation(news, prices) → Pearson/Spearman @1/3/7d
+   /api/backtest/    → backtest.run_backtest(prices, news, params) → equity curve + trades + signals + metrics
    /api/alerts/      → reads fired Alert rows
 beat ─► check_sentiment_alerts → alerts.run_sentiment_alert_check
    per asset: rolling avg sentiment (lookback) → threshold cross + cooldown
@@ -122,9 +124,9 @@ beat ─► check_sentiment_alerts → alerts.run_sentiment_alert_check
 ```
 
 News ingest normalizes both the new (≥0.2.40, nested `content`) and legacy
-yfinance `.news` schemas via `_normalize_news_item`. TA indicators and the
-sentiment↔price correlation matrix are computed **on read** from stored data
-(no extra columns/tables). The correlation matrix is the measurement primitive
+yfinance `.news` schemas via `_normalize_news_item`. TA indicators, the
+sentiment↔price correlation matrix, and the Phase 3 strategy backtest are all
+computed **on read** from stored prices + scored news (no extra columns/tables). The correlation matrix is the measurement primitive
 for the long-term self-calibration goal (learn news relevance from market
 reaction over ~1 year) — recent articles without enough forward price history
 are excluded, so the matrix populates as history accumulates.
@@ -195,10 +197,22 @@ analyzes the missed window, independent of Celery beat timing.
   - ✅ Automated sentiment-threshold alerts via [core/alerts.py](core/alerts.py)
     (`check_sentiment_alerts` beat task): log + Telegram/Discord/Email channels,
     `Alert` model with cooldown/dedupe, `/api/alerts/` + dashboard alert panel.
-  - ✅ Unit tests for indicator + correlation + alert logic ([core/tests/](core/tests/), 26 tests).
-- Phase 3 — Backtesting engine · *planned*
+  - ✅ Unit tests for indicator + correlation + alert logic ([core/tests/](core/tests/)).
+- **Phase 3 — Backtesting engine ✅**
+  - ✅ Pure pandas/numpy sentiment-strategy backtester via [core/backtest.py](core/backtest.py)
+    (long-only, rolling-sentiment entry/exit + stop-loss, no look-ahead), served
+    at `/api/backtest/?asset=&buy_threshold=&sell_threshold=&stop_loss_pct=&sentiment_window_days=&initial_capital=`.
+  - ✅ Metrics: total return, buy & hold benchmark + **alpha**, **Sharpe**, **Sortino**,
+    **max drawdown**, win rate, trade count; full equity curve + trade log + buy/sell signals.
+  - ✅ Dashboard "Strategy Sandbox" card: tunable rule inputs, metric tiles, equity-curve
+    area chart, and BUY/SELL markers overlaid on the price candles.
+  - ✅ Unit tests for the engine ([core/tests/test_backtest.py](core/tests/test_backtest.py)); 35 tests total.
+  - ⏭ Deferred: TimescaleDB and Backtrader/PyAlgoTrade — the pure-pandas engine is
+    sufficient at current data scale and avoids the numpy 2.x dependency conflicts;
+    revisit if history grows to millions of rows.
 - Phase 4 — Custom NLP & multi-source scrapers · *planned*
 - Phase 5 — Paper/live trading · *planned*
+- Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
 
 ---
 
