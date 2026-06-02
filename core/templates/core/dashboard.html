@@ -242,6 +242,74 @@
                     </button>
                 </div>
 
+                <!-- ================= TOP OPPORTUNITÀ (Phase 4: composite ranking) ================= -->
+                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-b from-amber-500/5 to-transparent pointer-events-none"></div>
+                    <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
+                        <div>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
+                                <i class="fa-solid fa-ranking-star text-accent-amber"></i> Top Opportunità
+                            </h2>
+                            <p class="text-xs text-slate-400">Classifica composita su tutti i titoli — sentiment + tecnico + momentum. <span class="text-slate-500">Non è un consiglio d'acquisto.</span></p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="flex rounded-lg overflow-hidden border border-slate-800 text-[10px] font-bold">
+                                <button @click="rankingOrder = 'top'; loadRanking()"
+                                        :class="rankingOrder === 'top' ? 'bg-accent-amber/20 text-accent-amber' : 'bg-slate-900 text-slate-500 hover:text-slate-300'"
+                                        class="px-2.5 py-1 transition-colors">Migliori</button>
+                                <button @click="rankingOrder = 'bottom'; loadRanking()"
+                                        :class="rankingOrder === 'bottom' ? 'bg-accent-rose/20 text-accent-rose' : 'bg-slate-900 text-slate-500 hover:text-slate-300'"
+                                        class="px-2.5 py-1 border-l border-slate-800 transition-colors">Peggiori</button>
+                            </div>
+                            <button @click="loadRanking()" class="text-slate-500 hover:text-slate-300 p-1" title="Aggiorna classifica">
+                                <i class="fa-solid fa-arrows-rotate text-xs" :class="loadingRanking ? 'animate-spin' : ''"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="relative z-10">
+                        <template x-if="ranking.length === 0">
+                            <div class="text-center py-8 text-slate-500 text-xs">
+                                <i class="fa-solid fa-hourglass-half text-slate-700 text-2xl mb-2"></i>
+                                <p>Classifica non ancora calcolata. Si popola al primo ciclo dati (o all'avvio del worker).</p>
+                            </div>
+                        </template>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <template x-for="r in ranking" :key="r.symbol">
+                                <div @click="openRanked(r.symbol)"
+                                     class="flex items-center gap-3 p-2.5 bg-slate-900/40 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-900/80 hover:border-slate-700 transition-all">
+                                    <span class="w-7 text-center font-extrabold text-sm"
+                                          :class="r.rank <= 3 ? 'text-accent-amber' : 'text-slate-500'" x-text="'#' + r.rank"></span>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-bold text-sm text-white" x-text="r.symbol"></span>
+                                            <span class="text-[10px] text-slate-500 truncate" x-text="r.name"></span>
+                                            <span x-show="r.low_news" class="text-[9px] px-1 rounded bg-slate-800 text-slate-500 border border-slate-700" title="Poche notizie: punteggio basato soprattutto su tecnico e prezzo">poche news</span>
+                                        </div>
+                                        <!-- component mini-bars -->
+                                        <div class="flex items-center gap-1.5 mt-1 text-[9px] text-slate-500">
+                                            <span title="Sentiment"><i class="fa-solid fa-comment-dots"></i> <span :class="r.components.sentiment >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="r.components.sentiment.toFixed(2)"></span></span>
+                                            <span title="Tecnico (RSI/MACD)"><i class="fa-solid fa-wave-square"></i> <span :class="r.components.technical >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="r.components.technical.toFixed(2)"></span></span>
+                                            <span title="Momentum prezzo"><i class="fa-solid fa-arrow-trend-up"></i> <span :class="r.components.momentum >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="r.components.momentum.toFixed(2)"></span></span>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col items-end w-20 flex-shrink-0">
+                                        <span class="font-extrabold text-base"
+                                              :class="r.score >= 60 ? 'text-accent-emerald' : (r.score >= 45 ? 'text-accent-amber' : 'text-accent-rose')"
+                                              x-text="r.score.toFixed(0)"></span>
+                                        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-0.5">
+                                            <div class="h-full rounded-full"
+                                                 :class="r.score >= 60 ? 'bg-accent-emerald' : (r.score >= 45 ? 'bg-accent-amber' : 'bg-accent-rose')"
+                                                 :style="'width:' + r.score + '%'"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- MAIN CHART SECTION -->
                 <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-brand-500/5 to-transparent pointer-events-none"></div>
@@ -418,7 +486,37 @@
                                 <h2 class="text-base font-bold font-outfit text-white tracking-tight">Notizie e Analisi Sentiment</h2>
                                 <p class="text-xxs text-slate-400 text-xs">Seleziona una notizia per consultare l'estratto o clicca sui marker del grafico</p>
                             </div>
-                            <span class="px-2 py-0.5 text-xs bg-slate-900 border border-slate-800 text-slate-300 rounded font-semibold" x-text="news.length + ' articoli'"></span>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <!-- Phase 4: source-quality filter (default: trusted outlets only) -->
+                                <button @click="newsVerifiedOnly = !newsVerifiedOnly"
+                                        :class="newsVerifiedOnly ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/30' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'"
+                                        class="px-2 py-1 rounded-lg border text-[10px] font-bold transition-colors flex items-center gap-1"
+                                        title="Mostra solo testate verificate di qualità (Bloomberg, Reuters, FT, Il Sole 24 Ore…), nascondendo aggregatori e blog">
+                                    <i class="fa-solid" :class="newsVerifiedOnly ? 'fa-shield-halved' : 'fa-shield'"></i>
+                                    <span>Solo verificate</span>
+                                </button>
+                                <!-- Phase 4: relevance filter -->
+                                <div class="flex rounded-lg overflow-hidden border border-slate-800 text-[10px] font-bold">
+                                    <button @click="newsRelevanceFilter = 'all'"
+                                            :class="newsRelevanceFilter === 'all' ? 'bg-brand-500/20 text-brand-300' : 'bg-slate-900 text-slate-500 hover:text-slate-300'"
+                                            class="px-2 py-1 transition-colors">Tutte</button>
+                                    <button @click="newsRelevanceFilter = 'relevant'"
+                                            :class="newsRelevanceFilter === 'relevant' ? 'bg-accent-emerald/20 text-accent-emerald' : 'bg-slate-900 text-slate-500 hover:text-slate-300'"
+                                            class="px-2 py-1 border-l border-slate-800 transition-colors" title="Solo notizie ritenute rilevanti per il prezzo">Rilevanti</button>
+                                    <button @click="newsRelevanceFilter = 'noise'"
+                                            :class="newsRelevanceFilter === 'noise' ? 'bg-accent-rose/20 text-accent-rose' : 'bg-slate-900 text-slate-500 hover:text-slate-300'"
+                                            class="px-2 py-1 border-l border-slate-800 transition-colors" title="Escludi le notizie rilevanti">Rumore</button>
+                                </div>
+                                <select x-model="newsCategoryFilter"
+                                        class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg text-[10px] font-semibold px-2 py-1 focus:outline-none focus:border-brand-500"
+                                        title="Filtra per tema">
+                                    <option value="">Tutti i temi</option>
+                                    <template x-for="c in newsCategories" :key="c.value">
+                                        <option :value="c.value" x-text="c.label"></option>
+                                    </template>
+                                </select>
+                                <span class="px-2 py-1 text-xs bg-slate-900 border border-slate-800 text-slate-300 rounded font-semibold" x-text="filteredNews.length + ' / ' + news.length"></span>
+                            </div>
                         </div>
 
                         <!-- Active Highlighted Article Info Drawer (if clicked) -->
@@ -427,7 +525,13 @@
                                 <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-4 shadow-inner space-y-3 border-l-4"
                                      :class="selectedArticle.sentiment_label === 'Positivo' ? 'border-l-accent-emerald' : (selectedArticle.sentiment_label === 'Negativo' ? 'border-l-accent-rose' : 'border-l-accent-amber')">
                                     <div class="flex items-center justify-between text-xs">
-                                        <span class="font-bold text-slate-400" x-text="selectedArticle.source"></span>
+                                        <span class="font-bold text-slate-400 flex items-center gap-1.5">
+                                            <i class="fa-solid fa-shield-halved"
+                                               :class="selectedArticle.source_tier === 'premium' ? 'text-accent-emerald' : (selectedArticle.source_tier === 'quality' ? 'text-brand-400' : 'text-slate-600')"></i>
+                                            <span x-text="selectedArticle.source"></span>
+                                            <span class="text-[10px] text-slate-500 font-semibold"
+                                                  x-text="(selectedArticle.source_tier_label || 'Non verificata') + (selectedArticle.source_country ? ' · ' + selectedArticle.source_country : '')"></span>
+                                        </span>
                                         <span class="text-slate-500" x-text="formatDate(selectedArticle.timestamp)"></span>
                                     </div>
                                     <h3 class="font-bold text-sm text-white leading-tight" x-text="selectedArticle.title"></h3>
@@ -445,6 +549,20 @@
                                             <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                                         </a>
                                     </div>
+                                    <!-- Phase 4: theme category + forward price impact (self-calibration signal) -->
+                                    <div class="flex items-center flex-wrap gap-2 text-[11px]">
+                                        <template x-if="selectedArticle.category_label">
+                                            <span class="px-2 py-0.5 rounded-full font-bold border"
+                                                  :class="selectedArticle.is_relevant === true ? 'bg-brand-500/10 text-brand-300 border-brand-500/20' : (selectedArticle.is_relevant === false ? 'bg-slate-800 text-slate-500 border-slate-700' : 'bg-slate-800/50 text-slate-400 border-slate-700')">
+                                                <i class="fa-solid fa-tag text-[9px] mr-1"></i><span x-text="selectedArticle.category_label"></span>
+                                            </span>
+                                        </template>
+                                        <template x-if="forwardImpactText(selectedArticle)">
+                                            <span class="text-slate-400 font-semibold" title="Variazione di prezzo dopo la notizia: il segnale da cui il sistema impara cosa è davvero rilevante">
+                                                <i class="fa-solid fa-arrow-trend-up text-[9px] mr-1 text-slate-500"></i>Impatto: <span class="text-slate-300" x-text="forwardImpactText(selectedArticle)"></span>
+                                            </span>
+                                        </template>
+                                    </div>
                                     <p class="text-xs text-slate-400 leading-relaxed bg-slate-900/50 p-2.5 rounded-lg" x-text="selectedArticle.extracted_text || 'Nessun estratto testuale disponibile.'"></p>
                                     <button @click="selectedArticle = null" class="text-xxs text-brand-400 font-semibold hover:underline">Chiudi estratto ed esamina tutti gli articoli</button>
                                 </div>
@@ -458,15 +576,31 @@
                                         <p>Nessun articolo per questo asset. Clicca "Aggiorna Dati" in alto per scaricarli.</p>
                                     </div>
                                 </template>
-                                
-                                <template x-for="item in news" :key="item.id">
+                                <template x-if="news.length > 0 && filteredNews.length === 0">
+                                    <div class="text-center py-12 text-slate-500 text-xs">
+                                        <i class="fa-solid fa-filter-circle-xmark text-slate-700 text-3xl mb-2"></i>
+                                        <p>Nessun articolo corrisponde al filtro selezionato.</p>
+                                    </div>
+                                </template>
+
+                                <template x-for="item in filteredNews" :key="item.id">
                                     <div @click="selectedArticle = item; scrollChartToTime(item.timestamp)"
                                          class="p-3 bg-slate-900/30 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-900/80 hover:border-slate-700 transition-all flex items-start justify-between space-x-4">
                                         <div class="space-y-1.5 flex-1 truncate">
                                             <div class="flex items-center space-x-2 text-[10px]">
+                                                <!-- Phase 4: source quality tier indicator -->
+                                                <i class="fa-solid fa-shield-halved"
+                                                   :class="item.source_tier === 'premium' ? 'text-accent-emerald' : (item.source_tier === 'quality' ? 'text-brand-400' : 'text-slate-600')"
+                                                   :title="item.source_tier_label || 'Non verificata'"></i>
                                                 <span class="font-extrabold text-slate-400 uppercase" x-text="item.source"></span>
                                                 <span class="text-slate-600">•</span>
                                                 <span class="text-slate-500" x-text="formatDate(item.timestamp)"></span>
+                                                <!-- Phase 4: theme category badge -->
+                                                <template x-if="item.category_label">
+                                                    <span class="px-1.5 py-0.5 rounded font-bold border"
+                                                          :class="item.is_relevant === true ? 'bg-brand-500/10 text-brand-300 border-brand-500/20' : (item.is_relevant === false ? 'bg-slate-800 text-slate-500 border-slate-700' : 'bg-slate-800/50 text-slate-400 border-slate-700')"
+                                                          x-text="item.category_label"></span>
+                                                </template>
                                             </div>
                                             <h4 class="font-semibold text-xs text-slate-200 truncate group-hover:text-white leading-snug" x-text="item.title"></h4>
                                         </div>
@@ -571,10 +705,18 @@
                 correlation: { sample_size: 0, horizons: [] },
                 alerts: [],
                 selectedArticle: null,
+                // Phase 4: news relevance filter (client-side over loaded articles).
+                newsCategoryFilter: '',     // '' = all categories
+                newsRelevanceFilter: 'all', // all | relevant | noise
+                newsVerifiedOnly: true,     // default: only trusted (premium/quality) outlets
                 syncing: false,
                 loadingChart: false,
                 chartDataLength: 0,
                 alertMessage: '',
+                // Phase 4: composite "Top Opportunità" ranking
+                ranking: [],
+                rankingOrder: 'top',
+                loadingRanking: false,
 
                 // Technical-indicator UI config + state
                 emaConfig: [
@@ -625,7 +767,8 @@
 
                 init() {
                     this.loadAssets();
-                    
+                    this.loadRanking();
+
                     // Handle window resize dynamically for responsive chart
                     window.addEventListener('resize', () => {
                         const fit = (chart, id, h) => {
@@ -651,6 +794,24 @@
                             }
                         })
                         .catch(err => console.error("Error loading assets:", err));
+                },
+
+                // Phase 4: load the composite opportunity leaderboard.
+                loadRanking() {
+                    this.loadingRanking = true;
+                    fetch(`/api/ranking/?limit=20&order=${this.rankingOrder}`)
+                        .then(res => res.json())
+                        .then(data => { this.ranking = Array.isArray(data) ? data : []; })
+                        .catch(err => console.error("Error loading ranking:", err))
+                        .finally(() => { this.loadingRanking = false; });
+                },
+
+                // Open a ranked asset in the chart (find it in the loaded universe).
+                openRanked(symbol) {
+                    const asset = this.assets.find(a => a.symbol === symbol)
+                                  || { symbol: symbol, name: symbol, asset_type: 'Stock' };
+                    this.selectAsset(asset);
+                    document.querySelector('#chart-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 },
 
                 selectAsset(asset) {
@@ -1284,13 +1445,47 @@
 
                 formatDate(isoString) {
                     const date = new Date(isoString);
-                    return date.toLocaleString('it-IT', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
+                    return date.toLocaleString('it-IT', {
+                        day: '2-digit',
+                        month: '2-digit',
                         year: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit'
                     });
+                },
+
+                // Phase 4: distinct theme categories present in the loaded articles.
+                get newsCategories() {
+                    const seen = {};
+                    this.news.forEach(n => {
+                        if (n.category && n.category_label) seen[n.category] = n.category_label;
+                    });
+                    return Object.entries(seen).map(([value, label]) => ({ value, label }));
+                },
+
+                // Phase 4: news filtered by the active category + relevance + source-quality controls.
+                get filteredNews() {
+                    return this.news.filter(n => {
+                        if (this.newsVerifiedOnly && n.source_tier !== 'premium' && n.source_tier !== 'quality') return false;
+                        if (this.newsCategoryFilter && n.category !== this.newsCategoryFilter) return false;
+                        if (this.newsRelevanceFilter === 'relevant' && n.is_relevant !== true) return false;
+                        if (this.newsRelevanceFilter === 'noise' && n.is_relevant === true) return false;
+                        return true;
+                    });
+                },
+
+                // Compact "+3.2% @7g" style summary of an article's forward price impact.
+                forwardImpactText(item) {
+                    if (!item || !item.forward_impact) return null;
+                    const parts = [];
+                    [['1', '1g'], ['3', '3g'], ['7', '7g']].forEach(([k, lbl]) => {
+                        const v = item.forward_impact[k];
+                        if (v !== null && v !== undefined) {
+                            const sign = v >= 0 ? '+' : '';
+                            parts.push(`${sign}${v.toFixed(1)}% @${lbl}`);
+                        }
+                    });
+                    return parts.length ? parts.join(' · ') : null;
                 },
 
                 getCookie(name) {

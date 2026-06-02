@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-01 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-02 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -14,7 +14,10 @@
 Self-hosted platform that correlates financial **price data** with **news
 sentiment** to support trading decisions. Prices and news are ingested on a
 schedule, scored for sentiment (FinBERT or a keyword fallback), and served
-through a REST API + single-page dashboard.
+through a REST API + single-page dashboard. The tracked universe is the global
+**top ~500 companies by market cap** (validated yfinance tickers,
+[core/data/global_top500.csv](core/data/global_top500.csv)); users can also
+add/remove assets from the dashboard.
 
 ---
 
@@ -25,8 +28,8 @@ through a REST API + single-page dashboard.
 | Backend     | Python 3.11+, Django 5.x, Django REST Framework, django-filter    |
 | Async/Queue | Celery 5.x (worker + beat), Redis 7 (broker & result backend)     |
 | Database    | PostgreSQL 15 (Alpine)                                             |
-| NLP         | HuggingFace Transformers (ProsusAI/finbert), PyTorch (CPU-only)   |
-| Data feed   | yfinance (prices + news)                                          |
+| NLP         | HuggingFace Transformers — ProsusAI/finbert (sentiment) + facebook/bart-large-mnli (zero-shot theme categorization, opt-in), PyTorch (CPU-only) |
+| Data feed   | yfinance (prices + per-ticker news) + feedparser (curated quality RSS, linked to assets via NER) |
 | TA / math   | pandas + numpy (pure-pandas EMA/RSI/MACD + backtester; Backtrader/pandas-ta avoided — numpy 2.x) |
 | Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned) |
 | Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat)       |
@@ -57,6 +60,14 @@ FinanceBuddy/
     ├── correlation.py         # Phase 2: sentiment↔forward-return correlation (Pearson/Spearman)
     ├── alerts.py              # Phase 2: sentiment-threshold eval + multi-channel dispatch
     ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester
+    ├── relevance.py           # Phase 4: cold-start news categorization + forward price impact
+    ├── sources.py             # Phase 4: news source quality registry lookup (tier/country/language)
+    ├── entities.py            # Phase 4: entity linking (NER) — attribute articles to tracked assets
+    ├── rss.py                 # Phase 4: RSS feed fetch + entry normalization (feedparser, lazy import)
+    ├── universe.py            # Phase 4: load the asset universe (global top ~500) from data CSV
+    ├── ranking.py             # Phase 4: composite "Top Opportunità" score (sentiment+momentum+technical+price)
+    ├── data/
+    │   └── global_top500.csv  # Committed, yfinance-validated global top ~500 by market cap
     ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation/Backtest + Dashboard
     ├── tasks.py               # Celery tasks (incl. startup_catch_up) + ingest/scoring helpers
     ├── migrations/            # 0001_initial, 0002_alert …
@@ -73,16 +84,25 @@ FinanceBuddy/
 ```
 Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
                   ├─1:N──► NewsArticle (asset, url)        unique
-                  └─1:N──► Alert        (asset, level, created_at) indexed
+                  ├─1:N──► Alert        (asset, level, created_at) indexed
+                  └─1:1──► AssetScore   (composite opportunity ranking)
 ```
 
 - **Asset** — `symbol` (PK), `name`, `asset_type` (Stock|ETF).
 - **PriceData** — OHLCV per `timestamp`; ordered by timestamp; indexed `(asset, timestamp)`.
 - **NewsArticle** — `title`, `source`, `url`, `extracted_text`, `sentiment_score`
-  (−1.0…+1.0), `sentiment_label` (Positivo|Neutrale|Negativo).
+  (−1.0…+1.0), `sentiment_label` (Positivo|Neutrale|Negativo). **Phase 4:**
+  `category` (theme; cold-start keyword vote), `is_relevant` (True|False|null =
+  unknown), `forward_impact` (JSON `{"1":pct,"3":pct,"7":pct}` forward return
+  from publish — the supervision signal for the self-calibrating filter),
+  `source_tier` (premium|quality|unverified, from the curated source registry).
 - **Alert** — fired sentiment-threshold event: `level` (Positivo|Negativo),
   `avg_sentiment`, `article_count`, `message`, `created_at`. Persisted for
   cooldown/dedupe and UI history.
+- **AssetScore** — latest composite opportunity ranking per asset (1:1):
+  `score` (0–100), `rank`, `components` (JSON: sentiment / sentiment_momentum /
+  technical / momentum, each −1..1), `n_articles`, `low_news`, `updated_at`.
+  Upserted by `compute_rankings`; read by `/api/ranking/`.
 
 ---
 
@@ -97,10 +117,17 @@ Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
 | `celery_beat`  | Triggers periodic tasks on the schedule below.                       |
 
 ### Periodic schedule (`settings.CELERY_BEAT_SCHEDULE`)
-- `fetch_market_data` — every 15 min (recent prices, 30d@1h, daily fallback).
-- `fetch_news` — every 30 min → chains `analyze_sentiment`.
+- `fetch_market_data` — every 15 min (recent prices, batched multi-ticker
+  `yf.download` so the ~500-asset universe stays tractable).
+- `fetch_news` — every 30 min → a capped random sample of assets via yfinance
+  per-ticker news (`YFINANCE_NEWS_MAX_ASSETS`) + curated RSS feeds
+  (`RSS_INGEST_ENABLED`, linked to assets via NER) → chains `analyze_sentiment`.
 - `analyze_sentiment` — every 30 min (scores unscored articles).
 - `check_sentiment_alerts` — every 30 min (fires threshold alerts; see §6).
+- `update_news_relevance` — every 30 min (Phase 4: tag source quality tier,
+  categorize new articles, (re)compute forward price impact as history matures).
+- `compute_rankings` — every 30 min (Phase 4: recompute the composite
+  opportunity score per asset → upsert AssetScore).
 - `startup_catch_up` — **event-driven** (on `worker_ready`, not periodic): one-off
   gap-recovery pipeline run when the service comes online (see §6).
 
@@ -111,13 +138,21 @@ Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
 ```
 beat ──schedule──► worker
    fetch_market_data → yfinance → PriceData (upsert)
-   fetch_news        → yfinance → NewsArticle (insert) → analyze_sentiment
+   fetch_news        → yfinance (per-ticker) + RSS feeds → NewsArticle (insert) → analyze_sentiment
+      fetch_rss_news → feedparser → entities.match_symbols (NER) → NewsArticle per matched asset
    analyze_sentiment → FinBERT | keywords → sentiment_score/label
 web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (charts)
    /api/indicators/  → indicators.compute_indicators(close series) → EMA/RSI/MACD JSON
    /api/correlation/ → correlation.compute_sentiment_correlation(news, prices) → Pearson/Spearman @1/3/7d
    /api/backtest/    → backtest.run_backtest(prices, news, params) → equity curve + trades + signals + metrics
+   /api/news/        → reads NewsArticle (filter ?asset= &category= &relevant= &quality=verified|premium|quality|unverified)
+   /api/ranking/     → reads AssetScore leaderboard (?limit= &order=top|bottom)
    /api/alerts/      → reads fired Alert rows
+beat ─► compute_rankings → ranking.rank_assets(per-asset sentiment+technical+momentum) → AssetScore upsert
+beat ─► update_news_relevance → sources + relevance helpers
+   classify_pending_sources    → NewsArticle.source_tier (curated quality registry; also set at ingest)
+   categorize_pending_articles → NewsArticle.category/is_relevant (cold-start keyword vote)
+   backfill_forward_impact     → NewsArticle.forward_impact (matures with price history)
 beat ─► check_sentiment_alerts → alerts.run_sentiment_alert_check
    per asset: rolling avg sentiment (lookback) → threshold cross + cooldown
    → Alert (insert) → dispatch to log + Telegram/Discord/Email (if configured)
@@ -149,8 +184,9 @@ analyzes the missed window, independent of Celery beat timing.
 
 > Limitation: yfinance `.news` only returns the latest ~10 items per asset, so
 > intraday articles that scrolled off the list while offline cannot be backfilled
-> (addressed later by Phase 4 multi-source scrapers). Price history is fully
-> recoverable because fetches are window-based.
+> via yfinance (the Phase 4 RSS feeds widen coverage but are likewise window-based,
+> not a full archive). Price history is fully recoverable because fetches are
+> window-based.
 
 ---
 
@@ -173,8 +209,9 @@ analyzes the missed window, independent of Celery beat timing.
    config → that channel is skipped. **Note:** `DB_PASSWORD` must match the value the
    `postgres_data` volume was first initialized with, or recreate the volume.
 7. **Graceful degradation.** Per-asset ingest errors are logged and skipped;
-   FinBERT failures fall back to keyword scoring (`USE_REAL_NLP` flag); a failing
-   alert channel is logged and skipped without blocking the others.
+   FinBERT failures fall back to keyword scoring (`USE_REAL_NLP` flag) and zero-shot
+   NLI categorization falls back to the keyword classifier (`USE_ZERO_SHOT_NLP`
+   flag); a failing alert channel is logged and skipped without blocking the others.
 8. **Single owner for migrations/bootstrap** (the `web` service) to avoid races.
 
 ---
@@ -210,7 +247,69 @@ analyzes the missed window, independent of Celery beat timing.
   - ⏭ Deferred: TimescaleDB and Backtrader/PyAlgoTrade — the pure-pandas engine is
     sufficient at current data scale and avoids the numpy 2.x dependency conflicts;
     revisit if history grows to millions of rows.
-- Phase 4 — Custom NLP & multi-source scrapers · *planned*
+- **Phase 4 — Custom NLP & multi-source scrapers 🚧 (in progress)**
+  - ✅ **Self-calibrating relevance filter — cold-start (rung 1 of 3).**
+    [core/relevance.py](core/relevance.py): keyword-vote theme categorization
+    (earnings, guidance, M&A, regulatory, geopolitics, monetary policy, corporate
+    event; noise vs. signal) + per-article forward price impact at 1/3/7d (reuses
+    the correlation primitive, no look-ahead). New `NewsArticle` fields
+    `category`/`is_relevant`/`forward_impact` (migration 0003); `update_news_relevance`
+    beat task + `startup_catch_up` wiring; `/api/news/?category=&relevant=` filters;
+    dashboard relevance filter (theme dropdown + Tutte/Rilevanti/Rumore toggle),
+    category badges, and forward-impact in the article drawer.
+  - ✅ **Source quality registry.** [core/sources.py](core/sources.py) + curated
+    `constants.SOURCE_REGISTRY` map each outlet to a tier (premium|quality|
+    unverified) + country + language, so aggregators/opinion blogs (Insider
+    Monkey, Stocktwits, Simply Wall St…) are separated from trusted press
+    (Reuters, Bloomberg, FT, WSJ, Il Sole 24 Ore, Nikkei, Handelsblatt, NRC,
+    Caixin…). `source_tier` set at ingest + backfilled (migration 0004); the
+    dashboard defaults to "Solo verificate" with a per-article shield/tier badge,
+    and `/api/news/?quality=` filters server-side. Yahoo Finance stays the feed;
+    this is a quality layer on top of it (and the slot future RSS/Reddit feeds
+    plug into). Unit tests ([test_relevance.py](core/tests/test_relevance.py),
+    [test_sources.py](core/tests/test_sources.py)) + DB task tests
+    ([test_relevance_tasks.py](core/tests/test_relevance_tasks.py)); 62 tests total.
+  - ✅ **Zero-shot NLI categorization (rung 2 of 3).** Opt-in
+    `facebook/bart-large-mnli` zero-shot classifier (`USE_ZERO_SHOT_NLP`, off by
+    default) assigns the theme without training, scoring each article against the
+    `NEWS_CATEGORY_NLI_HYPOTHESES`; below `NLI_MIN_CONFIDENCE` it stays
+    uncategorized. Lazy `get_zeroshot_pipeline()` loader (CPU, shared HF cache);
+    `categorize_pending_articles` uses it when enabled and **falls back per-article
+    to the keyword cold-start on any model failure** (same contract as FinBERT).
+    `recategorize_all()` upgrades existing keyword-tagged rows. Pure decode tested
+    + DB/mock tests; 69 tests total.
+  - ✅ **Entity linking (NER) + multi-source RSS ingestion.**
+    [core/entities.py](core/entities.py) links a general article to tracked assets
+    via a per-asset alias dictionary (symbol + cleaned company name + curated
+    `ASSET_ALIASES`, whole-word match) — reliable for a known universe; a
+    model-based NER can be layered later. [core/rss.py](core/rss.py) (feedparser,
+    lazy import) + curated `constants.RSS_FEEDS` (25 feeds across 11 countries —
+    US/UK/DE/FR/IT/NL/ES/JP/HK/SG/IN, all validated live) pull quality newspapers;
+    `fetch_rss_news` normalizes entries, attributes each to assets via
+    NER, stores one row per matched asset (dedup on (asset, url)), tags
+    `source_tier`, and degrades gracefully per dead feed. Gated by
+    `RSS_INGEST_ENABLED` (default on), wired into `fetch_news` + `startup_catch_up`.
+    Pure tests ([test_entities.py](core/tests/test_entities.py),
+    [test_rss.py](core/tests/test_rss.py)) + DB/mock task tests; 86 tests total.
+  - ✅ **Global top ~500 universe.** The tracked set is the worldwide top ~500 by
+    market cap ([core/data/global_top500.csv](core/data/global_top500.csv),
+    yfinance-validated; 5 unlisted tickers pruned), loaded by
+    [core/universe.py](core/universe.py) and seeded idempotently. Scaling: prices
+    fetched via batched multi-ticker `yf.download` (`fetch_prices_batched`); bootstrap
+    deep-backfills only assets without history (no re-upsert every boot); yfinance
+    per-ticker news capped to a random sample per cycle (`YFINANCE_NEWS_MAX_ASSETS`),
+    with the broad universe covered by RSS + NER. Users can still add/remove assets.
+  - ✅ **Composite "Top Opportunità" ranking.** [core/ranking.py](core/ranking.py)
+    blends sentiment level + sentiment momentum + a technical read (RSI/MACD) +
+    price momentum into a transparent 0–100 score per asset (weights/windows in
+    constants; components exposed for explainability). Computed by the
+    `compute_rankings` task into `AssetScore` (snapshot, fast reads), served at
+    `/api/ranking/`, and shown as a prominent dashboard leaderboard (Migliori /
+    Peggiori, click-to-open). Labeled "not investment advice". Pure + DB tests.
+  - ⏭ Next rung: (3) self-supervised classifier fine-tuned on the accumulated
+    `forward_impact` labels (the self-calibration core — waiting on history to
+    mature). Also planned: Reddit ingestion (PRAW), model-based NER for unknown
+    orgs, local FinBERT fine-tuning; Twitter/X deferred on API cost.
 - Phase 5 — Paper/live trading · *planned*
 - Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
 

@@ -155,10 +155,27 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'core.tasks.check_sentiment_alerts',
         'schedule': crontab(minute='*/30'),
     },
+    'update-news-relevance-every-30-min': {
+        'task': 'core.tasks.update_news_relevance',
+        'schedule': crontab(minute='*/30'),
+    },
+    'compute-rankings-every-30-min': {
+        'task': 'core.tasks.compute_rankings',
+        'schedule': crontab(minute='*/30'),
+    },
 }
 
 # Sentiment NLP flag
 USE_REAL_NLP = os.environ.get('USE_REAL_NLP', 'False') == 'True'
+# Phase 4 (rung 2): zero-shot NLI theme categorization (else keyword cold-start).
+USE_ZERO_SHOT_NLP = os.environ.get('USE_ZERO_SHOT_NLP', 'False') == 'True'
+# Phase 4: pull news from curated quality RSS feeds (linked to assets via NER).
+RSS_INGEST_ENABLED = os.environ.get(
+    'RSS_INGEST_ENABLED', str(constants.RSS_INGEST_ENABLED_DEFAULT)) == 'True'
+# Phase 4: cap how many assets get yfinance per-ticker news per cycle (no batch
+# API); the rest rely on RSS + NER. Keeps a ~500-asset universe tractable.
+YFINANCE_NEWS_MAX_ASSETS = int(os.environ.get(
+    'YFINANCE_NEWS_MAX_ASSETS', constants.YFINANCE_NEWS_MAX_ASSETS_DEFAULT))
 
 # -- Sentiment alerting (Phase 2) -------------------------------------------
 # Thresholds default to core.constants but can be overridden per-deployment.

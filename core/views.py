@@ -6,9 +6,10 @@ from django.views.generic import TemplateView
 from django.utils import timezone
 import datetime
 
-from core.models import Asset, PriceData, NewsArticle, Alert
+from core.models import Asset, PriceData, NewsArticle, Alert, AssetScore
 from core.serializers import (
     AssetSerializer, PriceDataSerializer, NewsArticleSerializer, AlertSerializer,
+    AssetScoreSerializer,
 )
 from core import indicators, correlation, backtest, constants
 
@@ -85,11 +86,31 @@ class NewsArticleViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = NewsArticle.objects.all().order_by('-timestamp')
-        asset_id = self.request.query_params.get('asset')
-        
+        params = self.request.query_params
+
+        asset_id = params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
-            
+
+        # Phase 4: relevance filter — by exact theme category and/or relevance flag.
+        category = params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+
+        relevant = params.get('relevant')
+        if relevant == 'true':
+            queryset = queryset.filter(is_relevant=True)
+        elif relevant == 'false':
+            queryset = queryset.filter(is_relevant=False)
+
+        # Phase 4: source-quality filter — verified = premium+quality, or exact tier.
+        quality = params.get('quality')
+        if quality == 'verified':
+            queryset = queryset.filter(source_tier__in=constants.VERIFIED_SOURCE_TIERS)
+        elif quality in (constants.SOURCE_TIER_PREMIUM, constants.SOURCE_TIER_QUALITY,
+                         constants.SOURCE_TIER_UNVERIFIED):
+            queryset = queryset.filter(source_tier=quality)
+
         return queryset
 
 
@@ -137,6 +158,27 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
         return queryset
+
+
+class RankingView(APIView):
+    """
+    Phase 4 endpoint: the composite "Top Opportunità" leaderboard.
+
+    GET /api/ranking/?limit=20&order=top|bottom → ranked assets with their
+    score (0–100) and the normalized components (sentiment, sentiment momentum,
+    technical, price momentum), read from the precomputed AssetScore snapshot.
+    """
+
+    def get(self, request):
+        try:
+            limit = max(1, min(100, int(request.query_params.get('limit', 20))))
+        except (TypeError, ValueError):
+            limit = 20
+
+        order = request.query_params.get('order', 'top')
+        queryset = AssetScore.objects.select_related('asset')
+        queryset = queryset.order_by('score' if order == 'bottom' else '-score')[:limit]
+        return Response(AssetScoreSerializer(queryset, many=True).data)
 
 
 class CorrelationView(APIView):

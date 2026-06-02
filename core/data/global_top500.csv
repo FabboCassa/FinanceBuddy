@@ -1,0 +1,497 @@
+# Global top ~500 companies by market capitalization (source: companiesmarketcap.com, 2026-06).
+# Format: symbol|name  — yfinance-validated live (invalid tickers removed).
+NVDA|NVIDIA
+GOOG|Alphabet (Google)
+AAPL|Apple
+MSFT|Microsoft
+AMZN|Amazon
+TSM|TSMC
+AVGO|Broadcom
+2222.SR|Saudi Aramco
+TSLA|Tesla
+005930.KS|Samsung
+META|Meta Platforms
+MU|Micron Technology
+000660.KS|SK Hynix
+BRK-B|Berkshire Hathaway
+LLY|Eli Lilly
+WMT|Walmart
+AMD|AMD
+JPM|JPMorgan Chase
+ORCL|Oracle
+ASML|ASML
+XOM|Exxon Mobil
+V|Visa
+INTC|Intel
+JNJ|Johnson & Johnson
+TCEHY|Tencent
+CSCO|Cisco
+MA|Mastercard
+ARM|Arm Holdings
+COST|Costco
+CAT|Caterpillar
+LRCX|Lam Research
+601939.SS|China Construction Bank
+PLTR|Palantir
+ABBV|AbbVie
+CVX|Chevron
+BAC|Bank of America
+AMAT|Applied Materials
+NFLX|Netflix
+UNH|UnitedHealth
+GE|General Electric
+KO|Coca-Cola
+601288.SS|Agricultural Bank of China
+MS|Morgan Stanley
+PG|Procter & Gamble
+RO.SW|Roche
+HSBC|HSBC
+HD|Home Depot
+GS|Goldman Sachs
+1398.HK|ICBC
+9984.T|SoftBank Group Corp.
+DELL|Dell
+IBM|IBM
+BABA|Alibaba
+300750.SZ|CATL
+MRK|Merck
+601988.SS|Bank of China
+AZN|AstraZeneca
+NVS|Novartis
+MC.PA|LVMH
+PM|Philip Morris International
+TXN|Texas Instruments
+285A.T|KIOXIA Holdings Corporation
+RY|Royal Bank Of Canada
+SNDK|Sandisk
+NESN.SW|Nestlé
+GEV|GE Vernova
+KLAC|KLA
+0857.HK|PetroChina
+SIE.DE|Siemens
+PANW|Palo Alto Networks
+600519.SS|Kweichow Moutai
+QCOM|QUALCOMM
+TM|Toyota
+OR.PA|L'Oréal
+SHEL|Shell
+0941.HK|China Mobile
+WFC|Wells Fargo
+RTX|RTX
+601138.SS|Foxconn Industrial Internet
+BHP|BHP Group
+SAP|SAP
+LIN|Linde
+2454.TW|MediaTek
+C|Citigroup
+PRX.AS|Prosus
+ANET|Arista Networks
+AXP|American Express
+MUFG|Mitsubishi UFJ Financial
+STX|Seagate Technology
+APP|AppLovin
+TMUS|T-Mobile US
+VZ|Verizon
+CRWD|CrowdStrike
+RMS.PA|Hermès
+TTE|TotalEnergies
+ABBN.SW|ABB
+300308.SZ|Zhongji Innolight
+MCD|McDonald
+ADI|Analog Devices
+CBA.AX|Commonwealth Bank
+NVO|Novo Nordisk
+2308.TW|Delta Electronics
+PEP|Pepsico
+MRVL|Marvell Technology
+ITX.MC|Inditex
+WDC|Western Digital
+RELIANCE.NS|Reliance Industries
+SU.PA|Schneider Electric
+TMO|Thermo Fisher Scientific
+TD|Toronto Dominion Bank
+APH|Amphenol
+DIS|Walt Disney
+SAN|Santander
+AMGN|Amgen
+RIO|Rio Tinto
+BA|Boeing
+NEE|Nextera Energy
+CRM|Salesforce
+T|AT&T
+TJX|TJX Companies
+ALV.DE|Allianz SE
+0883.HK|CNOOC
+DTE.DE|Deutsche Telekom
+GILD|Gilead Sciences
+SCCO|Southern Copper
+SHOP|Shopify
+AIR.PA|Airbus
+BLK|BlackRock
+ENR.F|Siemens Energy
+UBS|UBS
+UNP|Union Pacific Corporation
+3968.HK|CM Bank
+ETN|Eaton
+BUD|Anheuser-Busch Inbev
+601088.SS|China Shenhua Energy
+SCHW|Charles Schwab
+8035.T|Tokyo Electron
+IBE.MC|Iberdrola
+9983.T|Fast Retailing
+ABT|Abbott Laboratories
+GLW|Corning
+IBKR|Interactive Brokers
+UBER|Uber
+HON|Honeywell
+DE|Deere & Company
+PFE|Pfizer
+ISRG|Intuitive Surgical
+601318.SS|Ping An Insurance
+SAF.PA|Safran
+RR.L|Rolls-Royce Holdings
+D05.SI|DBS Group
+6501.T|Hitachi
+BX|Blackstone Group
+COP|ConocoPhillips
+SMFG|Sumitomo Mitsui Financial Group
+NOW|ServiceNow
+WELL|Welltower
+601628.SS|China Life Insurance
+DELTA.BK|Delta Electronics (Thailand)
+2317.TW|Foxconn
+SONY|Sony
+BTI|British American Tobacco
+BKNG|Booking Holdings
+002594.SZ|BYD
+UCG.MI|UniCredit
+PLD|Prologis
+IFX.DE|Infineon
+BBVA|Banco Bilbao Vizcaya Argentaria
+DHR|Danaher
+SPGI|S&P Global
+INVE-B.ST|Investor AB
+005380.KS|Hyundai
+CFR.SW|Compagnie Financière Richemont
+VRT|Vertiv Holdings
+PDD|PDD Holdings
+601899.SS|Zijin Mining
+PBR|Petrobras
+HDB|HDFC Bank
+ACN|Accenture
+UL|Unilever
+688256.SS|Cambricon Technologies
+BNP.PA|BNP Paribas
+CB|Chubb
+ENB|Enbridge
+6857.T|Advantest
+AI.PA|Air Liquide
+LMT|Lockheed Martin
+6861.T|Keyence
+402340.KS|SK Square
+ISP.MI|Intesa Sanpaolo
+6981.T|Murata Manufacturing
+LOW|Lowe's Companies
+BHARTIARTL.NS|Bharti Airtel
+CVS|CVS Health
+NEM|Newmont
+COF|Capital One
+SYK|Stryker Corporation
+MO|Altria Group
+CDNS|Cadence Design Systems
+BMO|Bank of Montreal
+8058.T|Mitsubishi Corporation
+PGR|Progressive
+BMY|Bristol-Myers Squibb
+VRTX|Vertex Pharmaceuticals
+ENEL.MI|Enel
+ADBE|Adobe
+BP|BP
+300502.SZ|Eoptolink Technology
+MFG|Mizuho Financial Group
+SBUX|Starbucks
+1299.HK|AIA
+FTNT|Fortinet
+1120.SR|Al Rajhi Bank
+ZURN.SW|Zurich Insurance Group
+SPOT|Spotify
+PH|Parker-Hannifin
+EQIX|Equinix
+PWR|Quanta Services
+SNY|Sanofi
+HWM|Howmet Aerospace
+BN|Brookfield Corporation
+600900.SS|China Yangtze Power
+SO|Southern Company
+MAR|Marriott International
+TT|Trane Technologies
+GSK|GSK plc
+DDOG|Datadog
+GMBXF|Grupo México
+SNOW|Snowflake
+CM|CIBC
+INTU|Intuit
+BNS|Scotiabank
+FCX|Freeport-McMoRan
+CEG|Constellation Energy
+CNQ|Canadian Natural Resources
+NET|Cloudflare
+MDT|Medtronic
+XIACF|Xiaomi
+CABK.MC|CaixaBank
+6098.T|Recruit
+SNPS|Synopsys
+BK|BNY Mellon
+CS.PA|AXA
+DUK|Duke Energy
+ADP|Automatic Data Processing
+CDI.PA|Dior
+CME|CME Group
+EQNR|Equinor
+000333.SZ|Midea
+TCS.NS|Tata Consultancy Services
+GLCNF|Glencore
+SBIN.NS|State Bank of India
+UPS|United Parcel Service
+IBN|ICICI Bank
+GD|General Dynamics
+EL.PA|EssilorLuxottica
+NOK|Nokia
+8031.T|Mitsui Bussan
+601328.SS|Bank of Communications
+CMCSA|Comcast
+601658.SS|Postal Savings Bank of China
+CMI|Cummins
+KKR|KKR & Co.
+ING|ING
+MCK|McKesson
+AEM|Agnico Eagle Mines
+MELI|MercadoLibre
+ELV|Elevance Health
+AMT|American Tower
+WBC.AX|Westpac Banking
+MNST|Monster Beverage
+4063.T|Shin-Etsu Chemical
+PNC|PNC Financial Services
+600028.SS|Sinopec
+ITUB|Itaú Unibanco
+WMB|Williams Companies
+WM|Waste Management
+CSX|CSX Corporation
+8766.T|Tokio Marine
+O39.SI|OCBC Bank
+0981.HK|SMIC
+ASX|ASE Group
+USB|U.S. Bancorp
+BCS|Barclays
+ATCO-B.ST|Atlas Copco
+HCA|HCA Healthcare
+ICE|Intercontinental Exchange
+SLB|SLB (Schlumberger)
+ABNB|Airbnb
+HOOD|Robinhood
+JCI|Johnson Controls
+NAB.AX|National Australia Bank
+8001.T|Itōchū Shōji
+MCO|Moody's
+FDX|FedEx
+CIEN|Ciena
+EPD|Enterprise Products
+002475.SZ|Luxshare Precision
+NGG|National Grid
+EMR|Emerson
+DG.PA|Vinci
+LYG|Lloyds Banking Group
+NTES|NetEase
+CP|CPKC (Canadian Pacific Kansas City)
+MMM|3M
+E|ENI
+ENGI.PA|ENGIE
+NXPI|NXP Semiconductors
+4519.T|Chugai Pharmaceutical
+MDLZ|Mondelez International
+MRSH|Marsh & McLennan Companies
+CVNA|Carvana
+BE|Bloom Energy
+RCL|Royal Caribbean Group
+SPG|Simon Property Group
+6503.T|Mitsubishi Electric
+BAM|Brookfield Asset Management
+NOC|Northrop Grumman
+MPWR|Monolithic Power Systems
+AMX|America Movil
+BA.L|BAE Systems
+HLT|Hilton Worldwide
+MPC|Marathon Petroleum
+9432.T|NTT (Nippon Telegraph & Telephone)
+SU|Suncor Energy
+VLO|Valero Energy
+GM|General Motors
+7011.T|Mitsubishi Heavy Industries
+APO|Apollo Global Management
+ANZ.AX|ANZ Bank
+EOG|EOG Resources
+SHW|Sherwin-Williams
+CI|The Cigna Group
+ROST|Ross Stores
+CNI|Canadian National Railway
+PSX|Phillips 66
+ORLY|O'Reilly Automotive
+DASH|DoorDash
+CRH|Cement Roadstone Holding
+BSX|Boston Scientific
+B|Barrick Gold
+COHR|Coherent Corp.
+RKLB|Rocket Lab
+CL|Colgate-Palmolive
+ITW|Illinois Tool Works
+ECL|Ecolab
+LITE|Lumentum
+VOLV-A.ST|Volvo Group
+VALE|Vale
+TDG|TransDigm Group
+CTAS|Cintas
+DHL.DE|DHL Group (Deutsche Post)
+TRP|TC Energy
+KMI|Kinder Morgan
+NSC|Norfolk Southern
+AON|Aon
+7182.T|Japan Post Bank
+MSI|Motorola Solutions
+WBD|Warner Bros. Discovery
+373220.KS|LG Energy Solution
+2914.T|Japan Tobacco
+CRWV|CoreWeave
+NKE|Nike
+G.MI|Generali
+3690.HK|Meituan
+AEP|American Electric Power
+NBIS|Nebius Group
+MRK.DE|Merck KGaA
+ET|Energy Transfer LP
+F|Ford
+0388.HK|Hong Kong Exchanges & Clearing
+DLR|Digital Realty
+MUV2.DE|Munich RE
+1211.SR|Ma'aden
+9434.T|SoftBank Corp.
+MQG.AX|Macquarie Group Limited
+RHM.F|Rheinmetall
+2388.HK|Bank of China (Hong Kong)
+002371.SZ|NAURA Technology Group
+WES.AX|Wesfarmers
+NDA-FI.HE|Nordea Bank
+5802.T|Sumitomo Denki Kōgyō
+NWG|NatWest Group
+9433.T|KDDI
+9633.HK|Nongfu Spring
+NU|Nu Holdings
+REGN|Regeneron Pharmaceuticals
+FIX|Comfort Systems USA
+MFC|Manulife Financial
+URI|United Rentals
+BKR|Baker Hughes
+1180.SR|The Saudi National Bank
+HPE|Hewlett Packard Enterprise
+APD|Air Products and Chemicals
+BPAC3.SA|BTG Pactual
+601998.SS|CITIC Bank
+RSG|Republic Services
+LSEG.L|London Stock Exchange
+TEL|TE Connectivity
+DB|Deutsche Bank
+RACE|Ferrari
+TRV|The Travelers Companies
+STM|STMicroelectronics
+RELX|RELX
+DSV.VI|DSV
+0728.HK|China Telecom
+STAN.L|Standard Chartered
+IMO|Imperial Oil
+AAL.L|Anglo American
+GLE.PA|Société Générale
+GWW|W. W. Grainger
+OXY|Occidental Petroleum
+WPM|Wheaton Precious Metals
+VIC.VN|Vingroup Company
+TFC|Truist Financial Corporation
+SE|Sea Limited
+ACA.PA|Crédit Agricole
+7010.SR|Saudi Telecom Company
+601166.SS|Industrial Bank
+TER|Teradyne
+LT.NS|Larsen & Toubro
+LHX|L3Harris Technologies
+PCAR|Paccar
+BAJFINANCE.NS|Bajaj Finance
+UMC|United Microelectronics
+NUE|Nucor
+AFL|Aflac
+MBG.DE|Mercedes-Benz
+SRE|Sempra
+D|Dominion Energy
+032830.KS|Samsung Life Insurance
+ANTO.L|Antofagasta
+KEYS|Keysight
+TGT|Target
+600030.SS|CITIC Securities
+FANG|Diamondback Energy
+Z74.SI|Singtel
+UCB.VI|UCB
+MPLX|MPLX
+TRGP|Targa Resources
+O|Realty Income
+2327.TW|Yageo
+ORA.PA|Orange
+7741.T|Hoya
+NA.TO|National Bank of Canada
+EOAN.DE|E.ON
+ALAB|Astera Labs
+HO.PA|Thales
+CPG.L|Compass Group
+7974.T|Nintendo
+INFY|Infosys
+FLEX|Flex
+HOLN.SW|Holcim Group
+CARR|Carrier Global
+DAL|Delta Air Lines
+OKE|Oneok
+DVN|Devon Energy
+MT|ArcelorMittal
+ALL|Allstate
+3993.HK|CMOC
+AJG|Arthur J. Gallagher & Co.
+300274.SZ|Sungrow Power Supply
+DB1.DE|Deutsche Börse
+VOW3.DE|Volkswagen
+MSTR|Strategy (MicroStrategy)
+CVE|Cenovus Energy
+MET|MetLife
+300394.SZ|Suzhou TFC Optical Communication
+6752.T|Panasonic
+NDAQ|Nasdaq
+ADSK|Autodesk
+L.TO|Loblaw Companies
+028260.KS|Samsung C&T Corporation
+PRY.MI|Prysmian Group
+KBCSF|KBC
+BMW.DE|BMW
+ARGX|Argenx
+VST|Vistra
+BAS.DE|BASF
+CTVA|Corteva
+PSA|Public Storage
+ATD.TO|Alimentation Couche-Tard
+HINDUNILVR.NS|Hindustan Unilever
+COR|Cencora
+AME|Ametek
+SAND.ST|Sandvik
+WMMVF|Walmex
+8053.T|Sumitomo
+GWO.TO|Great-West Lifeco
+ROK|Rockwell Automation
+EW|Edwards Lifesciences
+300476.SZ|Victory Giant Technology
+600183.SS|Shengyi Technology (SYTECH)
+EA|Electronic Arts
+P911.DE|Porsche

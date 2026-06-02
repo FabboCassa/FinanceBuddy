@@ -65,17 +65,45 @@ graph TD
 
 ---
 
-## 🤖 Fase 4: NLP Personalizzato & Scraping Multi-Canale (Medio-Lungo Termine)
+## 🤖 Fase 4: NLP Personalizzato & Scraping Multi-Canale (Medio-Lungo Termine) 🚧 *(in corso)*
 **Obiettivo:** Estendere le fonti informative e addestrare modelli predittivi calibrati specificamente sulla propria cronologia locale di trading.
 
+> **Stato:** avviata dal **filtro di rilevanza cold-start** (gradino 1 di 3). Implementati i campi
+> `category`/`is_relevant`/`forward_impact` su `NewsArticle`, la categorizzazione per parole chiave per tema
+> ([core/relevance.py](core/relevance.py)), il calcolo dell'impatto di prezzo forward a 1/3/7gg (riusa la
+> correlazione della Fase 2, niente look-ahead), il task `update_news_relevance` e il filtro in dashboard
+> (tema + Tutte/Rilevanti/Rumore + badge + impatto nel drawer). Aggiunto inoltre il **layer di qualità delle
+> fonti** ([core/sources.py](core/sources.py) + registro curato): ogni articolo è taggato con tier
+> (primaria/qualità/non verificata) + paese + lingua, così gli aggregatori (Insider Monkey, Stocktwits…) sono
+> separati dalle testate serie (Reuters, Bloomberg, FT, WSJ, Il Sole 24 Ore, Nikkei, Handelsblatt, NRC,
+> Caixin…); la dashboard mostra di default solo le testate verificate. Yahoo resta la fonte, con un filtro
+> qualità sopra (e lo slot dove agganciare i futuri feed RSS/Reddit). Aggiunto il **gradino 2 — categorizzazione
+> zero-shot (NLI)**: classificatore opzionale `facebook/bart-large-mnli` (`USE_ZERO_SHOT_NLP`, spento di default)
+> che assegna il tema senza training, con fallback automatico alle parole chiave in caso di errore del modello.
+> Aggiunti infine **NER (entity linking) + ingest RSS multi-paese**: [core/entities.py](core/entities.py) collega
+> ogni articolo agli asset noti tramite dizionario di alias, e [core/rss.py](core/rss.py) + `fetch_rss_news`
+> ingeriscono **25 feed RSS di testate di qualità in 11 paesi** (US/UK/DE/FR/IT/NL/ES/JP/HK/SG/IN — CNBC, FT,
+> Economist, NYT, Guardian, Telegraph, BBC, Handelsblatt, FAZ, Spiegel, Le Monde, Il Sole 24 Ore, ANSA, Corriere,
+> NRC, El País, Expansión, Nikkei, Japan Times, SCMP, Straits Times, Economic Times…), tutti validati dal vivo,
+> attribuendo ogni notizia agli asset citati e taggandone il tier. **Prossimo gradino:** classificatore auto-supervisionato addestrato sull'impatto
+> reale accumulato (gradino 3, in attesa che lo storico maturi); poi Reddit, NER a modello, fine-tuning locale.
+> Vedi [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
+
 * **Funzionalità:**
-  * **Filtro di Rilevanza Auto-Appreso (Self-Calibrating):** L'obiettivo finale è che il sistema **impari da solo** cosa è rilevante osservando la reazione di mercato alle notizie su una finestra lunga (~1 anno), senza regole scritte a mano. Pipeline a feedback: per ogni articolo si registra l'**impatto di prezzo forward** (rendimento a 1/3/7gg → vedi matrice di correlazione, Fase 2), si accumulano gli esempi e si addestra/aggiorna un classificatore che apprende quali temi muovono davvero il prezzo. Categorie d'interesse note a priori per il bootstrap: **earnings/bilanci, guidance, M&A, regolatorio/antitrust, geopolitica, politica monetaria/tassi, conferenze ed eventi aziendali**; rumore da scartare: cronaca nera, gossip, sport. Aggiungere al modello `NewsArticle` i campi `category`, `is_relevant` e `forward_impact` ed esporre il filtro in dashboard. Approccio incrementale: (1) keyword per tema (cold-start), (2) *zero-shot* NLI (es. `facebook/bart-large-mnli`), (3) **classificatore auto-supervisionato fine-tuned** etichettato dall'impatto di prezzo reale.
-  * **Scrapers Avanzati:** Aggregare notizie non solo da Yahoo Finance, ma anche da Reddit (es. *r/wallstreetbets*, *r/investing*), canali Telegram finanziari, e profili chiave su Twitter/X.
+  * **Filtro di Rilevanza Auto-Appreso (Self-Calibrating):** ✅ *cold-start implementato.* L'obiettivo finale è che il sistema **impari da solo** cosa è rilevante osservando la reazione di mercato alle notizie su una finestra lunga (~1 anno), senza regole scritte a mano. Pipeline a feedback: per ogni articolo si registra l'**impatto di prezzo forward** (rendimento a 1/3/7gg → vedi matrice di correlazione, Fase 2), si accumulano gli esempi e si addestra/aggiorna un classificatore che apprende quali temi muovono davvero il prezzo. Categorie d'interesse note a priori per il bootstrap: **earnings/bilanci, guidance, M&A, regolatorio/antitrust, geopolitica, politica monetaria/tassi, conferenze ed eventi aziendali**; rumore da scartare: cronaca nera, gossip, sport. Aggiungere al modello `NewsArticle` i campi `category`, `is_relevant` e `forward_impact` ed esporre il filtro in dashboard. Approccio incrementale: (1) keyword per tema (cold-start) ✅, (2) *zero-shot* NLI (es. `facebook/bart-large-mnli`) ✅, (3) **classificatore auto-supervisionato fine-tuned** etichettato dall'impatto di prezzo reale.
+  * **Qualità delle fonti (allowlist):** ✅ *implementato.* Registro curato di testate affidabili con tier qualità + paese + lingua; ogni articolo è taggato e la dashboard mostra di default solo le testate verificate, scartando aggregatori/blog d'opinione. Pensato per accogliere anche fonti future.
+  * **Scrapers Avanzati:** ✅ *feed RSS implementati.* Aggregare notizie non solo da Yahoo Finance, ma anche da feed RSS di testate di qualità (multi-paese) ✅ — Reddit (es. *r/wallstreetbets*, *r/investing*), canali Telegram finanziari, e profili chiave su Twitter/X (API a pagamento → posticipato) restano da fare.
+  * **Universo titoli (top ~500 mondiale):** ✅ *implementato.* L'universo tracciato è la top ~500 mondiale per capitalizzazione ([core/data/global_top500.csv](core/data/global_top500.csv), ticker yfinance validati dal vivo), caricata da [core/universe.py](core/universe.py). Carico ottimizzato: prezzi scaricati in blocco (multi-ticker), backfill profondo solo per i nuovi titoli, news yfinance campionate + RSS/NER per la copertura ampia. L'utente può comunque aggiungere/rimuovere asset dalla dashboard.
   * **Fine-Tuning Locale:** Utilizzare lo storico dei prezzi e delle notizie salvate localmente per addestrare un classificatore leggero sopra le rappresentazioni (embeddings) di FinBERT, adattando l'AI al linguaggio specifico degli asset scelti.
-  * **Riconoscimento delle Entità (NER):** Rilevare automaticamente quali asset sono citati in un articolo generico di notizie, correlando le entità senza configurarle manualmente.
+  * **Riconoscimento delle Entità (NER):** ✅ *entity linking a dizionario implementato* ([core/entities.py](core/entities.py)) — rileva quali asset noti sono citati in un articolo generico e ve lo collega; un NER a modello per organizzazioni non ancora tracciate resta un'evoluzione futura.
 * **Tecnologie:**
   * **Scraping:** `Scrapy`, `BeautifulSoup4`, `Selenium` (per pagine web dinamiche), Reddit API (`PRAW`), Twitter API.
   * **AI & Training:** `PyTorch`, `HuggingFace AutoTrain`, `scikit-learn` per addestrare classificatori personalizzati; modelli *zero-shot* NLI per la categorizzazione tematica senza training.
+
+---
+
+### ⭐ Classifica "Top Opportunità" (trasversale ai titoli) ✅ *(implementata)*
+Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scorrerli a mano. Implementato un **punteggio composito 0-100** per ogni titolo ([core/ranking.py](core/ranking.py)) che combina **sentiment + sentiment in salita + tecnico (RSI/MACD) + momentum di prezzo** (pesi tarabili in `constants.py`); calcolato dal task `compute_rankings` in `AssetScore`, esposto su `/api/ranking/` e mostrato come **leaderboard in cima alla dashboard** (Migliori/Peggiori, click per aprire il titolo, componenti visibili per trasparenza). Etichettata "non è un consiglio d'acquisto".
 
 ---
 

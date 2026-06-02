@@ -1,7 +1,9 @@
 from __future__ import absolute_import, unicode_literals
 import logging
+import os
 import random
 import datetime
+import tempfile
 from django.utils import timezone
 from django.conf import settings
 from celery import shared_task
@@ -13,8 +15,18 @@ from core import constants
 
 logger = logging.getLogger(__name__)
 
-# Lazy NLP pipeline loader
+# yfinance keeps a per-exchange timezone cache in a small sqlite file. On a cold
+# cache, threaded batch downloads can emit transient "database is locked" errors
+# (and the default ~/.cache path sometimes warns "File exists"). Point it at a
+# clean, writable, process-local directory to avoid that contention/noise.
+try:
+    yf.set_tz_cache_location(os.path.join(tempfile.gettempdir(), f"yf_tz_cache_{os.getpid()}"))
+except Exception:  # pragma: no cover - older yfinance without the helper
+    pass
+
+# Lazy NLP pipeline loaders
 _nlp_pipeline = None
+_zeroshot_pipeline = None
 
 
 def get_nlp_pipeline():
@@ -27,13 +39,36 @@ def get_nlp_pipeline():
     return _nlp_pipeline
 
 
+def get_zeroshot_pipeline():
+    """Lazy-load the zero-shot NLI classifier (Phase 4 rung 2). CPU-only."""
+    global _zeroshot_pipeline
+    if _zeroshot_pipeline is None:
+        logger.info("Initializing zero-shot NLI pipeline...")
+        from transformers import pipeline
+        _zeroshot_pipeline = pipeline(
+            "zero-shot-classification", model=constants.ZERO_SHOT_MODEL, device=-1,
+        )
+    return _zeroshot_pipeline
+
+
+def _categorize_with_nli(article):
+    """Return a theme category for an article via zero-shot NLI, or raise on failure."""
+    from core import relevance
+    pipe = get_zeroshot_pipeline()
+    text = f"{article.title}. {article.extracted_text}".strip()[:1000]
+    candidate_labels = list(constants.NEWS_CATEGORY_NLI_HYPOTHESES.values())
+    result = pipe(text, candidate_labels=candidate_labels)
+    return relevance.category_from_nli(result['labels'][0], result['scores'][0])
+
+
 # ---------------------------------------------------------------------------
 # Reusable helpers (shared by Celery beat tasks and the bootstrap command)
 # ---------------------------------------------------------------------------
 
 def seed_default_assets():
-    """Idempotently create the default asset universe. Returns the queryset."""
-    for cfg in constants.DEFAULT_ASSETS:
+    """Idempotently create the asset universe (global top ~500). Returns the queryset."""
+    from core.universe import load_universe
+    for cfg in load_universe():
         Asset.objects.get_or_create(
             symbol=cfg['symbol'],
             defaults={'name': cfg['name'], 'asset_type': cfg['asset_type']},
@@ -68,6 +103,41 @@ def _persist_history(asset, hist):
         else:
             updated_count += 1
     return created_count, updated_count
+
+
+def fetch_prices_batched(assets, period, interval, batch_size=None):
+    """Fetch + persist prices for many assets via batched yfinance downloads.
+
+    One multi-ticker ``yf.download`` per batch instead of a call per asset, so a
+    ~500-name universe stays tractable. Returns (created, updated) totals;
+    per-batch and per-symbol errors are logged and skipped.
+    """
+    batch_size = batch_size or constants.PRICE_FETCH_BATCH_SIZE
+    assets = list(assets)
+    by_symbol = {a.symbol: a for a in assets}
+    symbols = list(by_symbol)
+    created_total = updated_total = 0
+
+    for start in range(0, len(symbols), batch_size):
+        batch = symbols[start:start + batch_size]
+        try:
+            data = yf.download(batch, period=period, interval=interval,
+                               group_by='ticker', threads=True, progress=False)
+        except Exception as e:
+            logger.error(f"Batch price download failed ({batch[0]}…+{len(batch)-1}): {e}")
+            continue
+        for symbol in batch:
+            try:
+                sub = data[symbol] if len(batch) > 1 else data
+                sub = sub.dropna(how='all')
+                if sub.empty:
+                    continue
+                c, u = _persist_history(by_symbol[symbol], sub)
+                created_total += c
+                updated_total += u
+            except Exception as e:
+                logger.error(f"Price persist failed for {symbol}: {e}")
+    return created_total, updated_total
 
 
 def fetch_price_history(asset, period, interval, fallback=True):
@@ -139,6 +209,7 @@ def fetch_news_for_asset(asset):
         if fields is None:
             continue
 
+        from core import sources
         _, created = NewsArticle.objects.get_or_create(
             asset=asset,
             url=fields['url'],
@@ -147,11 +218,62 @@ def fetch_news_for_asset(asset):
                 'source': fields['source'],
                 'timestamp': fields['timestamp'],
                 'extracted_text': fields['summary'],
+                'source_tier': sources.source_tier(fields['source']),
             },
         )
         if created:
             inserted_count += 1
     return inserted_count
+
+
+def fetch_rss_news():
+    """Ingest curated RSS feeds and attribute each item to tracked assets (NER).
+
+    General-interest feeds carry no ticker, so every entry is linked to assets
+    via the alias-based entity linker; an item matching several assets is stored
+    once per asset (the (asset, url) unique key dedupes re-runs). Source tier is
+    resolved from the curated registry. Per-feed errors are logged and skipped.
+    Returns the count of newly inserted articles.
+    """
+    from core import rss, entities, sources
+
+    assets = list(Asset.objects.values_list('symbol', 'name'))
+    if not assets:
+        return 0
+    alias_map = entities.build_alias_map(assets)
+
+    inserted = 0
+    for feed in constants.RSS_FEEDS:
+        try:
+            parsed = rss.parse_feed(feed['url'])
+        except Exception as e:
+            logger.error(f"RSS fetch failed for {feed['source']} ({feed['url']}): {e}")
+            continue
+
+        for entry in parsed.entries[:constants.RSS_MAX_ENTRIES_PER_FEED]:
+            fields = rss.normalize_entry(entry, feed['source'])
+            if fields is None:
+                continue
+
+            symbols = entities.match_symbols(
+                f"{fields['title']} {fields['summary']}", alias_map)
+            for symbol in symbols:
+                _, created = NewsArticle.objects.get_or_create(
+                    asset_id=symbol,
+                    url=fields['url'],
+                    defaults={
+                        'title': fields['title'],
+                        'source': fields['source'],
+                        'timestamp': fields['timestamp'],
+                        'extracted_text': fields['summary'],
+                        'source_tier': sources.source_tier(fields['source']),
+                    },
+                )
+                if created:
+                    inserted += 1
+    if inserted:
+        logger.info(f"RSS ingest: inserted {inserted} new articles linked to tracked assets.")
+    return inserted
 
 
 def _score_with_finbert(article):
@@ -213,41 +335,207 @@ def score_pending_articles(use_real=None):
     return scored
 
 
+def categorize_pending_articles(use_nli=None):
+    """Assign a theme category + relevance flag to articles missing one.
+
+    Uses zero-shot NLI when enabled (Phase 4 rung 2), falling back per-article to
+    the keyword cold-start classifier on any model failure — same graceful-
+    degradation contract as FinBERT sentiment. Idempotent: only touches articles
+    whose `category` is still null (forward impact matures separately, below).
+    """
+    from core import relevance
+
+    if use_nli is None:
+        use_nli = settings.USE_ZERO_SHOT_NLP
+
+    pending = NewsArticle.objects.filter(category__isnull=True)
+    count = 0
+    for article in pending:
+        category = None
+        if use_nli:
+            try:
+                category = _categorize_with_nli(article)
+            except Exception as e:
+                logger.error(f"Zero-shot categorization error: {e}")
+                use_nli = False  # Fall back permanently for this run.
+
+        if category is None:
+            category = relevance.categorize(article.title, article.extracted_text)
+
+        article.category = category
+        article.is_relevant = relevance.is_relevant(category)
+        article.save(update_fields=['category', 'is_relevant'])
+        count += 1
+    if count:
+        method = 'zero-shot NLI' if use_nli else 'keyword cold-start'
+        logger.info(f"Categorized {count} articles ({method}).")
+    return count
+
+
+def recategorize_all(use_nli=None):
+    """Clear and recompute category/relevance for ALL articles.
+
+    Use this one-off after enabling zero-shot NLI (or changing the taxonomy) to
+    upgrade rows already tagged by the keyword cold-start.
+    """
+    NewsArticle.objects.update(category=None, is_relevant=None)
+    return categorize_pending_articles(use_nli=use_nli)
+
+
+def classify_pending_sources():
+    """Assign a source quality tier to articles missing one. Idempotent.
+
+    New articles get their tier at ingest; this backfills pre-existing rows and
+    re-runs cheaply if the curated registry changes (only touches null tiers).
+    """
+    from core import sources
+
+    pending = NewsArticle.objects.filter(source_tier__isnull=True)
+    count = 0
+    for article in pending:
+        article.source_tier = sources.source_tier(article.source)
+        article.save(update_fields=['source_tier'])
+        count += 1
+    if count:
+        logger.info(f"Tagged source quality tier for {count} articles.")
+    return count
+
+
+def backfill_forward_impact():
+    """(Re)compute forward price impact for articles whose horizons aren't resolved.
+
+    The forward return at +1/3/7d only exists once that much price history has
+    accumulated, so this re-runs each pass and fills horizons in as data arrives
+    — skipping articles already fully resolved. This is the supervision signal
+    the later self-supervised relevance model will train on.
+    """
+    from core import relevance
+
+    updated = 0
+    for asset in Asset.objects.all():
+        price_rows = list(
+            PriceData.objects.filter(asset=asset)
+            .order_by('timestamp')
+            .values_list('timestamp', 'close')
+        )
+        if not price_rows:
+            continue
+        for article in NewsArticle.objects.filter(asset=asset):
+            if relevance.is_impact_complete(article.forward_impact):
+                continue
+            impact = relevance.compute_forward_impact(article.timestamp, price_rows)
+            if impact != article.forward_impact:
+                article.forward_impact = impact
+                article.save(update_fields=['forward_impact'])
+                updated += 1
+    if updated:
+        logger.info(f"Updated forward price impact for {updated} articles.")
+    return updated
+
+
+def _last_valid(series):
+    """Last non-NaN float in a pandas series, or None."""
+    import pandas as pd
+    s = series.dropna()
+    return float(s.iloc[-1]) if len(s) else None
+
+
+def gather_ranking_inputs():
+    """Assemble per-asset inputs for the composite ranking (sentiment + technical).
+
+    Sentiment is aggregated over two windows (recent vs. prior) from verified,
+    non-noise scored news; RSI/MACD/price-return come from each asset's daily
+    closes. Returns a list of dicts consumed by ``ranking.rank_assets``.
+    """
+    from django.db.models import Avg, Count
+    from core import correlation, indicators
+
+    now = timezone.now()
+    recent_start = now - datetime.timedelta(days=constants.RANK_RECENT_WINDOW_DAYS)
+    prior_start = recent_start - datetime.timedelta(days=constants.RANK_PRIOR_WINDOW_DAYS)
+    price_since = now - datetime.timedelta(days=4 * constants.RANK_TECH_LOOKBACK_DAYS)
+
+    base = (NewsArticle.objects
+            .filter(sentiment_score__isnull=False,
+                    source_tier__in=constants.VERIFIED_SOURCE_TIERS)
+            .exclude(is_relevant=False))
+    recent = {r['asset']: r for r in base.filter(timestamp__gte=recent_start)
+              .values('asset').annotate(avg=Avg('sentiment_score'), n=Count('id'))}
+    prior = {r['asset']: r for r in base.filter(timestamp__gte=prior_start, timestamp__lt=recent_start)
+             .values('asset').annotate(avg=Avg('sentiment_score'))}
+
+    window = constants.RANK_MOMENTUM_WINDOW_DAYS
+    inputs = []
+    for symbol, name in Asset.objects.values_list('symbol', 'name'):
+        r, p = recent.get(symbol), prior.get(symbol)
+        rows = (PriceData.objects.filter(asset_id=symbol, timestamp__gte=price_since)
+                .order_by('timestamp').values_list('timestamp', 'close'))
+        closes = correlation._build_close_by_date(rows)
+
+        rsi_v = macd_v = price_return = None
+        if len(closes) >= 2:
+            s = closes.astype(float)
+            if len(s) > window and s.iloc[-1 - window] != 0:
+                price_return = float(s.iloc[-1] / s.iloc[-1 - window] - 1)
+            if len(s) >= constants.MACD_SLOW:
+                rsi_v = _last_valid(indicators.rsi(s))
+                macd_v = _last_valid(indicators.macd(s)['macd_hist'])
+
+        inputs.append({
+            'symbol': symbol, 'name': name,
+            'sent_recent': r['avg'] if r else None,
+            'sent_prior': p['avg'] if p else None,
+            'n_articles': r['n'] if r else 0,
+            'rsi': rsi_v, 'macd_hist': macd_v, 'price_return': price_return,
+        })
+    return inputs
+
+
 # ---------------------------------------------------------------------------
 # Celery tasks
 # ---------------------------------------------------------------------------
 
 @shared_task
 def fetch_market_data():
-    """Periodic task: fetch recent price data for all assets (seeds defaults if empty)."""
+    """Periodic task: fetch recent price data for all assets (seeds universe if empty)."""
     assets = Asset.objects.all()
     if not assets.exists():
-        logger.info("No assets found. Seeding default universe.")
+        logger.info("No assets found. Seeding asset universe.")
         assets = seed_default_assets()
 
-    for asset in assets:
-        logger.info(f"Fetching market data for {asset.symbol}...")
-        try:
-            created, updated = fetch_price_history(
-                asset,
-                period=constants.RECENT_PRICE_PERIOD,
-                interval=constants.RECENT_PRICE_INTERVAL,
-            )
-            logger.info(f"Asset {asset.symbol}: created {created} prices, updated {updated} prices.")
-        except Exception as e:
-            logger.error(f"Error fetching market data for {asset.symbol}: {str(e)}")
+    created, updated = fetch_prices_batched(
+        assets,
+        period=constants.RECENT_PRICE_PERIOD,
+        interval=constants.RECENT_PRICE_INTERVAL,
+    )
+    logger.info(f"Market data: created {created} prices, updated {updated} across {assets.count()} assets.")
 
 
 @shared_task
 def fetch_news():
-    """Periodic task: fetch news for all assets, then trigger sentiment analysis."""
-    for asset in Asset.objects.all():
-        logger.info(f"Fetching news articles for {asset.symbol}...")
+    """Periodic task: fetch news, then trigger sentiment analysis.
+
+    For a large universe, yfinance per-ticker news (no batch API) is polled only
+    for a random sample of assets each cycle (`YFINANCE_NEWS_MAX_ASSETS`); the
+    rest get coverage from the curated RSS feeds linked via NER. Over many cycles
+    the random sample rotates across the whole universe.
+    """
+    assets = list(Asset.objects.all())
+    cap = getattr(settings, 'YFINANCE_NEWS_MAX_ASSETS', constants.YFINANCE_NEWS_MAX_ASSETS_DEFAULT)
+    sample = random.sample(assets, min(cap, len(assets))) if cap > 0 else []
+    for asset in sample:
         try:
             inserted = fetch_news_for_asset(asset)
-            logger.info(f"Asset {asset.symbol}: newly inserted {inserted} articles.")
+            if inserted:
+                logger.info(f"Asset {asset.symbol}: newly inserted {inserted} articles.")
         except Exception as e:
             logger.error(f"Error fetching news for {asset.symbol}: {str(e)}")
+
+    if getattr(settings, 'RSS_INGEST_ENABLED', True):
+        try:
+            fetch_rss_news()
+        except Exception as e:
+            logger.error(f"RSS ingest run failed: {e}")
 
     analyze_sentiment.delay()
 
@@ -256,6 +544,35 @@ def fetch_news():
 def analyze_sentiment():
     """Periodic task: score all unscored articles using FinBERT or the keyword fallback."""
     score_pending_articles()
+
+
+@shared_task
+def update_news_relevance():
+    """Periodic task (Phase 4): tag source quality, categorize, (re)compute forward impact."""
+    tiered = classify_pending_sources()
+    categorized = categorize_pending_articles()
+    impacted = backfill_forward_impact()
+    return {'source_tiered': tiered, 'categorized': categorized, 'forward_impact_updated': impacted}
+
+
+@shared_task
+def compute_rankings():
+    """Periodic task (Phase 4): recompute the composite opportunity score per asset."""
+    from core import ranking
+    from core.models import AssetScore
+
+    ranked = ranking.rank_assets(gather_ranking_inputs())
+    for row in ranked:
+        AssetScore.objects.update_or_create(
+            asset_id=row['symbol'],
+            defaults={
+                'score': row['score'], 'rank': row['rank'],
+                'components': row['components'], 'n_articles': row['n_articles'],
+                'low_news': row['low_news'],
+            },
+        )
+    logger.info(f"Computed opportunity rankings for {len(ranked)} assets.")
+    return len(ranked)
 
 
 @shared_task
@@ -278,16 +595,30 @@ def startup_catch_up():
     """
     logger.info("Startup catch-up: recovering data since last run...")
     fetch_market_data()
-    for asset in Asset.objects.all():
+    assets = list(Asset.objects.all())
+    cap = getattr(settings, 'YFINANCE_NEWS_MAX_ASSETS', constants.YFINANCE_NEWS_MAX_ASSETS_DEFAULT)
+    for asset in (random.sample(assets, min(cap, len(assets))) if cap > 0 else []):
         try:
             fetch_news_for_asset(asset)
         except Exception as e:
             logger.error(f"Catch-up news fetch failed for {asset.symbol}: {e}")
+    if getattr(settings, 'RSS_INGEST_ENABLED', True):
+        try:
+            fetch_rss_news()
+        except Exception as e:
+            logger.error(f"Catch-up RSS ingest failed: {e}")
     scored = score_pending_articles()
+    classify_pending_sources()
+    categorized = categorize_pending_articles()
+    backfill_forward_impact()
+    compute_rankings()
     from core.alerts import run_sentiment_alert_check
     fired = run_sentiment_alert_check()
-    logger.info(f"Startup catch-up complete: scored {scored} articles, fired {len(fired)} alerts.")
-    return {'scored': scored, 'alerts': len(fired)}
+    logger.info(
+        f"Startup catch-up complete: scored {scored} articles, "
+        f"categorized {categorized}, fired {len(fired)} alerts."
+    )
+    return {'scored': scored, 'categorized': categorized, 'alerts': len(fired)}
 
 
 @worker_ready.connect

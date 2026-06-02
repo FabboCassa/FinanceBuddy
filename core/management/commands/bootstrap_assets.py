@@ -11,14 +11,18 @@ Usage:
     python manage.py bootstrap_assets --skip-news --period 5y
     python manage.py bootstrap_assets --no-sentiment
 """
+import random
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from core import constants
 from core.models import Asset
 from core.tasks import (
     seed_default_assets,
-    fetch_price_history,
+    fetch_prices_batched,
     fetch_news_for_asset,
+    fetch_rss_news,
     score_pending_articles,
 )
 
@@ -64,19 +68,36 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Bootstrap complete."))
 
     def _backfill_prices(self, assets, period, interval):
-        self.stdout.write(f"  Backfilling prices ({period} @ {interval})...")
-        for asset in assets:
-            try:
-                created, updated = fetch_price_history(asset, period=period, interval=interval)
-                self.stdout.write(f"    {asset.symbol}: +{created} new, {updated} updated")
-            except Exception as e:
-                self.stderr.write(self.style.WARNING(f"    {asset.symbol}: price fetch failed: {e}"))
+        from core.models import PriceData
+        # Deep-backfill only assets with no price history yet, so re-running the
+        # bootstrap on every container boot doesn't re-upsert 2y × ~500 assets.
+        # Recent data for already-seeded assets is kept fresh by the periodic
+        # batched fetch_market_data instead.
+        have_prices = set(PriceData.objects.values_list('asset_id', flat=True).distinct())
+        todo = [a for a in assets if a.symbol not in have_prices]
+        if not todo:
+            self.stdout.write("  Prices already present for all assets; skipping deep backfill.")
+            return
+        self.stdout.write(f"  Backfilling prices for {len(todo)} new assets ({period} @ {interval})...")
+        created, updated = fetch_prices_batched(todo, period=period, interval=interval)
+        self.stdout.write(self.style.SUCCESS(f"    +{created} new prices, {updated} updated"))
 
     def _fetch_news(self, assets):
-        self.stdout.write("  Fetching news...")
-        for asset in assets:
+        """News at bootstrap: curated RSS (broad, via NER) + a capped yfinance sample."""
+        self.stdout.write("  Fetching news (RSS feeds + sampled per-ticker)...")
+        try:
+            rss_inserted = fetch_rss_news()
+            self.stdout.write(self.style.SUCCESS(f"    RSS: +{rss_inserted} articles"))
+        except Exception as e:
+            self.stderr.write(self.style.WARNING(f"    RSS ingest failed: {e}"))
+
+        assets = list(assets)
+        cap = getattr(settings, 'YFINANCE_NEWS_MAX_ASSETS', constants.YFINANCE_NEWS_MAX_ASSETS_DEFAULT)
+        sample = random.sample(assets, min(cap, len(assets))) if cap > 0 else []
+        inserted = 0
+        for asset in sample:
             try:
-                inserted = fetch_news_for_asset(asset)
-                self.stdout.write(f"    {asset.symbol}: +{inserted} articles")
+                inserted += fetch_news_for_asset(asset)
             except Exception as e:
                 self.stderr.write(self.style.WARNING(f"    {asset.symbol}: news fetch failed: {e}"))
+        self.stdout.write(self.style.SUCCESS(f"    yfinance ({len(sample)} assets): +{inserted} articles"))

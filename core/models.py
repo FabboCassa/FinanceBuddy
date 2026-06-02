@@ -53,6 +53,24 @@ class NewsArticle(models.Model):
     sentiment_score = models.FloatField(null=True, blank=True, help_text="Between -1.0 and +1.0")
     sentiment_label = models.CharField(max_length=15, choices=SENTIMENT_LABELS, null=True, blank=True)
 
+    # -- Phase 4: self-calibrating relevance filter -------------------------
+    category = models.CharField(
+        max_length=20, null=True, blank=True, db_index=True,
+        help_text="Theme category (cold-start keyword vote; refined by later NLP stages).",
+    )
+    is_relevant = models.BooleanField(
+        null=True, blank=True,
+        help_text="Whether the category is price-relevant; null = unknown (not yet decided).",
+    )
+    forward_impact = models.JSONField(
+        null=True, blank=True,
+        help_text="Forward % return at 1/3/7d from publish — supervision signal for self-calibration.",
+    )
+    source_tier = models.CharField(
+        max_length=12, null=True, blank=True, db_index=True,
+        help_text="Source quality tier (premium|quality|unverified) from the curated registry.",
+    )
+
     class Meta:
         ordering = ['-timestamp']
         unique_together = ('asset', 'url')  # Avoid duplicate news entries for same asset
@@ -89,3 +107,26 @@ class Alert(models.Model):
 
     def __str__(self):
         return f"[{self.level}] {self.asset.symbol} @ {self.created_at:%Y-%m-%d %H:%M} (avg={self.avg_sentiment:.2f})"
+
+
+class AssetScore(models.Model):
+    """Latest composite "Top Opportunità" score per asset (Phase 4).
+
+    One row per asset, upserted by the `compute_rankings` task. `components`
+    stores the normalized sub-scores so the UI can explain the ranking.
+    """
+    asset = models.OneToOneField(
+        Asset, on_delete=models.CASCADE, related_name='score', primary_key=True,
+    )
+    score = models.FloatField(default=0.0, db_index=True, help_text="Composite 0–100 opportunity score.")
+    rank = models.PositiveIntegerField(null=True, blank=True)
+    components = models.JSONField(default=dict, help_text="Normalized sub-scores (-1..1).")
+    n_articles = models.PositiveIntegerField(default=0)
+    low_news = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-score']
+
+    def __str__(self):
+        return f"{self.asset_id}: {self.score:.1f} (#{self.rank})"
