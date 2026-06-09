@@ -135,8 +135,11 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 >
 > Aggiunti poi due affinamenti **interni** (niente broker): **(a) costi di
 > esecuzione realistici** — commissione (`PAPER_COMMISSION_PCT`) + slippage
-> avverso (`PAPER_SLIPPAGE_PCT`) su ogni fill, così la equity curve non è
-> ottimistica e il P&L round-trip è al netto delle commissioni; **(b) metriche di
+> avverso (`TRADING_SLIPPAGE_PCT`) su ogni fill — modello condiviso in
+> [core/execution.py](core/execution.py) e **applicato anche al backtester di
+> Fase 3**, così la equity curve non è ottimistica, il P&L round-trip è al netto
+> delle commissioni e backtest/paper della stessa strategia restano confrontabili;
+> **(b) metriche di
 > performance dal vivo** — Sharpe, Sortino, max drawdown, win rate, benchmark
 > Buy & Hold equipesato sui titoli effettivamente tradati e **alpha**, calcolate
 > dagli snapshot + operazioni chiuse riusando [core/metrics.py](core/metrics.py)

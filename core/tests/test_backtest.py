@@ -51,6 +51,7 @@ class BacktestEngineTests(SimpleTestCase):
             prices, news,
             buy_threshold=0.5, sell_threshold=0.1,
             stop_loss_pct=0, sentiment_window_days=1, initial_capital=1000.0,
+            commission_pct=0, slippage_pct=0,  # isolate pure strategy logic
         )
         self.assertEqual(result['metrics']['num_trades'], 1)
         trade = result['trades'][0]
@@ -73,6 +74,7 @@ class BacktestEngineTests(SimpleTestCase):
             prices, news,
             buy_threshold=0.5, sell_threshold=-0.9,
             stop_loss_pct=0.03, sentiment_window_days=1, initial_capital=1000.0,
+            commission_pct=0, slippage_pct=0,  # isolate pure strategy logic
         )
         trade = result['trades'][0]
         self.assertEqual(trade['exit_reason'], 'stop_loss')
@@ -88,6 +90,7 @@ class BacktestEngineTests(SimpleTestCase):
             prices, news,
             buy_threshold=0.5, sell_threshold=-1.0,
             stop_loss_pct=0, sentiment_window_days=1, initial_capital=1000.0,
+            commission_pct=0, slippage_pct=0,  # isolate pure strategy logic
         )
         # The open trade is reported but excluded from closed-trade metrics.
         self.assertEqual(len(result['trades']), 1)
@@ -128,12 +131,37 @@ class BacktestEngineTests(SimpleTestCase):
         result = backtest.run_backtest(
             prices, news, buy_threshold=0.5, sell_threshold=-1.0,
             stop_loss_pct=0, sentiment_window_days=1, initial_capital=10000.0,
+            commission_pct=0, slippage_pct=0,  # isolate the float-noise regression
         )
         m = result['metrics']
         self.assertEqual(m['num_trades'], 0)            # the lone trade stays open
         self.assertIsNone(m['sharpe_ratio'])
         self.assertIsNone(m['sortino_ratio'])
         self.assertAlmostEqual(m['total_return_pct'], 0.0, places=6)
+
+    def test_execution_costs_reduce_returns(self):
+        # The same winning cycle nets less once commission + slippage apply, and
+        # the recorded fills move adversely (buy up, sell down) — the honest case
+        # that keeps the backtest comparable to the paper trader.
+        closes = [100, 100, 110, 120, 130, 130, 130, 130]
+        prices = _daily_prices(closes)
+        news = [_news(1, 0.9), _news(4, -0.9)]
+        common = dict(buy_threshold=0.5, sell_threshold=0.1, stop_loss_pct=0,
+                      sentiment_window_days=1, initial_capital=1000.0)
+
+        frictionless = backtest.run_backtest(
+            prices, news, commission_pct=0, slippage_pct=0, **common)
+        with_costs = backtest.run_backtest(prices, news, **common)  # default costs
+
+        self.assertLess(with_costs['metrics']['total_return_pct'],
+                        frictionless['metrics']['total_return_pct'])
+        self.assertLess(with_costs['trades'][0]['return_pct'],
+                        frictionless['trades'][0]['return_pct'])
+        # Slippage worsens the fills: buy above 100, sell below 130.
+        self.assertGreater(with_costs['trades'][0]['entry_price'], 100.0)
+        self.assertLess(with_costs['trades'][0]['exit_price'], 130.0)
+        # Still a winning trade, just less so.
+        self.assertGreater(with_costs['metrics']['total_return_pct'], 0)
 
     def test_max_drawdown_is_non_positive(self):
         closes = [100, 100, 120, 90, 95, 130]

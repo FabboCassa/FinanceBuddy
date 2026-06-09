@@ -72,19 +72,10 @@ def latest_signal(latest_close, sentiment, *, holding, entry_price,
     return None, None
 
 
-def execution_price(reference_price, side, slippage_pct=constants.PAPER_SLIPPAGE_PCT):
-    """Adverse fill price vs. the observed close → what we actually transact at.
-
-    A ``'buy'`` pays slightly up, a ``'sell'`` receives slightly less; this models
-    the bid/ask spread and market impact a real order would suffer. Pure.
-    """
-    factor = (1 + slippage_pct) if side == 'buy' else (1 - slippage_pct)
-    return reference_price * factor
-
-
-def commission(gross_value, commission_pct=constants.PAPER_COMMISSION_PCT):
-    """Flat percentage fee on a trade's gross value (charged on each side). Pure."""
-    return abs(gross_value) * commission_pct
+# The execution-cost model is shared with the backtester; re-exported here so the
+# paper engine's public surface (``paper_trading.execution_price`` / ``.commission``)
+# stays stable for callers and tests.
+from core.execution import commission, execution_price  # noqa: E402,F401
 
 
 def position_size(total_equity, cash, fill_price, n_open_positions, *,

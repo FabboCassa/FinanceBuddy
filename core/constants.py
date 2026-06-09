@@ -340,9 +340,14 @@ PAPER_MIN_TRADE_VALUE = 50.0      # skip dust orders below this cash value
 #   * slippage:   the fill is adverse to the observed close — a BUY pays slightly
 #                 up, a SELL receives slightly less (models spread/market impact).
 # Both are deliberately modest defaults (tunable via env later) and only ever
-# make results worse, never better, so paper performance is not optimistic.
-PAPER_COMMISSION_PCT = 0.001      # 0.10% per side (broker fee / effective spread)
-PAPER_SLIPPAGE_PCT = 0.0005       # 0.05% adverse fill vs. the reference close
+# make results worse, never better, so performance is not optimistic. Shared by
+# BOTH the paper trader (Phase 5) and the backtester (Phase 3) via core/execution.py,
+# so a backtest and the live paper run of the same strategy stay comparable.
+TRADING_COMMISSION_PCT = 0.001    # 0.10% per side (broker fee / effective spread)
+TRADING_SLIPPAGE_PCT = 0.0005     # 0.05% adverse fill vs. the reference close
+# Back-compat aliases (the cost model is strategy-agnostic, not paper-only).
+PAPER_COMMISSION_PCT = TRADING_COMMISSION_PCT
+PAPER_SLIPPAGE_PCT = TRADING_SLIPPAGE_PCT
 # Only act on sentiment from verified, non-noise news (reuses VERIFIED_SOURCE_TIERS).
 PAPER_MIN_SENTIMENT_ARTICLES = 1  # min scored articles in the window to trust a signal
 # How far back to look for a tradable "latest close" (markets close on weekends/

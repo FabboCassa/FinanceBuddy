@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from core import constants, metrics
+from core import constants, execution, metrics
 
 
 # -- Series builders --------------------------------------------------------
@@ -63,16 +63,22 @@ def _build_rolling_sentiment(news_items, dates, window_days) -> pd.Series:
 # -- Simulation -------------------------------------------------------------
 
 def _simulate(closes: pd.Series, sentiment: pd.Series, *,
-              buy_threshold, sell_threshold, stop_loss_pct, initial_capital):
+              buy_threshold, sell_threshold, stop_loss_pct, initial_capital,
+              commission_pct=constants.TRADING_COMMISSION_PCT,
+              slippage_pct=constants.TRADING_SLIPPAGE_PCT):
     """Run the long-only rule set, returning (equity_series, trades, signals).
 
     Position is full-equity (all-in / all-out). Entry when flat and sentiment
     ≥ buy_threshold; exit when sentiment ≤ sell_threshold or close ≤ entry *
     (1 − stop_loss_pct). stop_loss_pct of 0 disables the stop.
+
+    Fills carry the shared execution costs (slippage + commission, see
+    core/execution.py) so the equity curve matches what the paper trader would do.
+    The stop-loss still triggers off the raw close (the market level), not the fill.
     """
     cash = float(initial_capital)
     shares = 0.0
-    entry_price = None
+    entry_price = None  # slippage-adjusted buy fill (the cost basis)
     entry_date = None
     trades, signals = [], []
     equity_values = []
@@ -82,18 +88,23 @@ def _simulate(closes: pd.Series, sentiment: pd.Series, *,
 
         if shares == 0.0:
             if not np.isnan(s) and s >= buy_threshold:
-                shares = cash / close
+                fill = execution.execution_price(close, 'buy', slippage_pct)
+                # All-in: shares·fill + commission(shares·fill) consumes all cash.
+                shares = cash / (fill * (1 + commission_pct))
                 cash = 0.0
-                entry_price, entry_date = close, date
-                signals.append({'date': _iso(date), 'type': 'buy', 'price': round(close, 4)})
+                entry_price, entry_date = fill, date
+                signals.append({'date': _iso(date), 'type': 'buy', 'price': round(fill, 4)})
         else:
             stop_hit = stop_loss_pct > 0 and close <= entry_price * (1 - stop_loss_pct)
             sentiment_exit = not np.isnan(s) and s <= sell_threshold
             if stop_hit or sentiment_exit:
-                cash = shares * close
+                fill = execution.execution_price(close, 'sell', slippage_pct)
+                gross = shares * fill
+                cash = gross - execution.commission(gross, commission_pct)
                 reason = 'stop_loss' if stop_hit else 'sentiment'
-                trades.append(_close_trade(entry_date, entry_price, date, close, reason))
-                signals.append({'date': _iso(date), 'type': 'sell', 'price': round(close, 4)})
+                trades.append(_close_trade(entry_date, entry_price, date, fill, reason,
+                                           commission_pct))
+                signals.append({'date': _iso(date), 'type': 'sell', 'price': round(fill, 4)})
                 shares = 0.0
                 entry_price = entry_date = None
 
@@ -104,13 +115,20 @@ def _simulate(closes: pd.Series, sentiment: pd.Series, *,
     # Mark-to-market any still-open position as an unrealized trade at the last close.
     if shares > 0.0:
         last_date, last_close = closes.index[-1], float(closes.iloc[-1])
-        trades.append(_close_trade(entry_date, entry_price, last_date, last_close, 'open'))
+        trades.append(_close_trade(entry_date, entry_price, last_date, last_close, 'open',
+                                   commission_pct))
 
     return equity, trades, signals
 
 
-def _close_trade(entry_date, entry_price, exit_date, exit_price, reason) -> dict:
-    ret = (exit_price - entry_price) / entry_price if entry_price else 0.0
+def _close_trade(entry_date, entry_price, exit_date, exit_price, reason,
+                 commission_pct=constants.TRADING_COMMISSION_PCT) -> dict:
+    """Build a trade record. ``return_pct`` is the net round-trip return: the
+    move from the all-in entry cost to the net exit proceeds. An ``'open'`` trade
+    is marked at the raw close (no exit yet) but still bears its entry commission."""
+    allin_entry = entry_price * (1 + commission_pct)
+    net_exit = (exit_price * (1 - commission_pct) if reason != 'open' else exit_price)
+    ret = (net_exit - allin_entry) / allin_entry if entry_price else 0.0
     return {
         'entry_date': _iso(entry_date),
         'entry_price': round(float(entry_price), 4),
@@ -182,7 +200,9 @@ def run_backtest(price_rows, news_items, *,
                  sell_threshold=constants.BACKTEST_SELL_THRESHOLD,
                  stop_loss_pct=constants.BACKTEST_STOP_LOSS_PCT,
                  sentiment_window_days=constants.BACKTEST_SENTIMENT_WINDOW_DAYS,
-                 initial_capital=constants.BACKTEST_INITIAL_CAPITAL) -> dict:
+                 initial_capital=constants.BACKTEST_INITIAL_CAPITAL,
+                 commission_pct=constants.TRADING_COMMISSION_PCT,
+                 slippage_pct=constants.TRADING_SLIPPAGE_PCT) -> dict:
     """Backtest the sentiment sandbox strategy over the stored history.
 
     `price_rows`: iterable of (timestamp, close). `news_items`: iterable of
@@ -208,6 +228,8 @@ def run_backtest(price_rows, news_items, *,
         sell_threshold=sell_threshold,
         stop_loss_pct=stop_loss_pct,
         initial_capital=initial_capital,
+        commission_pct=commission_pct,
+        slippage_pct=slippage_pct,
     )
 
     return {

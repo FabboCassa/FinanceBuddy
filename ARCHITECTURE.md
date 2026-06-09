@@ -62,6 +62,7 @@ FinanceBuddy/
     ├── alerts.py              # Phase 2: sentiment-threshold eval + multi-channel dispatch
     ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester (delegates metrics → metrics.py)
     ├── metrics.py             # Phase 3/5: shared equity-curve risk/return math (Sharpe/Sortino/drawdown/win-rate/buy-hold)
+    ├── execution.py           # Phase 3/5: shared trade-cost model (commission + adverse slippage) for backtest + paper
     ├── relevance.py           # Phase 4: cold-start news categorization + forward price impact
     ├── sources.py             # Phase 4: news source quality registry lookup (tier/country/language)
     ├── entities.py            # Phase 4: entity linking (NER) — attribute articles to tracked assets
@@ -270,6 +271,10 @@ analyzes the missed window, independent of Celery beat timing.
   - ✅ Metrics: total return, buy & hold benchmark + **alpha**, **Sharpe**, **Sortino**,
     **max drawdown**, win rate, trade count; full equity curve + trade log + buy/sell signals.
     The risk/return math lives in the shared [core/metrics.py](core/metrics.py) (reused by Phase 5).
+  - ✅ Execution costs: fills carry commission + adverse slippage via the shared
+    [core/execution.py](core/execution.py) (same model as the paper trader, so a
+    backtest and the live paper run of a strategy stay comparable). On by default;
+    `run_backtest(commission_pct=, slippage_pct=)` can zero them to isolate logic.
   - ✅ Dashboard "Strategy Sandbox" card: tunable rule inputs, metric tiles, equity-curve
     area chart, and BUY/SELL markers overlaid on the price candles.
   - ✅ Unit tests for the engine ([core/tests/test_backtest.py](core/tests/test_backtest.py)); 35 tests total.
@@ -360,9 +365,11 @@ analyzes the missed window, independent of Celery beat timing.
     (value, return, P&L, positions, trades, equity curve). Labeled "not investment
     advice, no real money".
   - ✅ **Realistic execution costs.** Every fill carries commission
-    (`PAPER_COMMISSION_PCT`) + adverse slippage (`PAPER_SLIPPAGE_PCT`) so the
-    equity curve isn't optimistic; costs only ever make results worse. Round-trip
-    `realized_pnl` nets both sides' fees.
+    (`TRADING_COMMISSION_PCT`) + adverse slippage (`TRADING_SLIPPAGE_PCT`) via the
+    shared [core/execution.py](core/execution.py) so the equity curve isn't
+    optimistic; costs only ever make results worse. Round-trip `realized_pnl` nets
+    both sides' fees. The **same model is applied to the Phase 3 backtester**, so
+    paper and backtest of one strategy are directly comparable.
   - ✅ **Live performance metrics.** `PortfolioView` returns a `performance` block
     (Sharpe, Sortino, max drawdown, win rate, equal-weight Buy & Hold benchmark of
     the traded names, and alpha) computed from snapshots + closed trades via the
@@ -372,7 +379,7 @@ analyzes the missed window, independent of Celery beat timing.
   - Pure tests ([test_paper_trading.py](core/tests/test_paper_trading.py) +
     [test_metrics.py](core/tests/test_metrics.py)) + DB cycle tests
     ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py));
-    146 tests total.
+    147 tests total.
   - ⏭ Next: Alpaca paper-broker API (encrypted keys via `cryptography.fernet`),
     multi-user portfolios, Django Channels WebSocket real-time price streaming.
     *(Note: Alpaca is optional — the internal simulation now models costs + metrics
