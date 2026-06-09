@@ -3,7 +3,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from core.views import (
     AssetViewSet, PriceDataViewSet, NewsArticleViewSet, AlertViewSet,
-    IndicatorsView, CorrelationView, BacktestView, RankingView, DashboardView,
+    IndicatorsView, CorrelationView, BacktestView, RankingView,
+    PortfolioView, PortfolioHistoryView, DashboardView,
 )
 
 router = DefaultRouter()
@@ -18,6 +19,8 @@ urlpatterns = [
     path('api/correlation/', CorrelationView.as_view(), name='correlation'),
     path('api/backtest/', BacktestView.as_view(), name='backtest'),
     path('api/ranking/', RankingView.as_view(), name='ranking'),
+    path('api/portfolio/', PortfolioView.as_view(), name='portfolio'),
+    path('api/portfolio/history/', PortfolioHistoryView.as_view(), name='portfolio-history'),
     path('api/', include(router.urls)),
     path('', DashboardView.as_view(), name='dashboard'),
 ]

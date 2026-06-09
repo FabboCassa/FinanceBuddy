@@ -6,10 +6,13 @@ from django.views.generic import TemplateView
 from django.utils import timezone
 import datetime
 
-from core.models import Asset, PriceData, NewsArticle, Alert, AssetScore
+from core.models import (
+    Asset, PriceData, NewsArticle, Alert, AssetScore,
+    Portfolio, PaperTrade, PortfolioSnapshot,
+)
 from core.serializers import (
     AssetSerializer, PriceDataSerializer, NewsArticleSerializer, AlertSerializer,
-    AssetScoreSerializer,
+    AssetScoreSerializer, PaperTradeSerializer,
 )
 from core import indicators, correlation, backtest, constants
 
@@ -264,6 +267,92 @@ class BacktestView(APIView):
             sentiment_window_days=window, initial_capital=capital,
         )
         return Response(result)
+
+
+class PortfolioView(APIView):
+    """
+    Phase 5 endpoint: the virtual paper-trading portfolio snapshot.
+
+    GET /api/portfolio/ → cash, open positions marked to the latest close
+    (market value + unrealized P&L), realized P&L, total equity and return vs.
+    the initial capital, plus the most recent virtual trades. Read-only; the
+    `run_paper_trading` task is what actually opens/closes positions.
+    """
+    RECENT_TRADES = 25
+
+    def get(self, request):
+        from django.db.models import Sum
+        from core.tasks import get_or_create_default_portfolio, _latest_closes
+
+        portfolio = get_or_create_default_portfolio()
+        closes = _latest_closes()
+
+        positions = []
+        holdings_value = 0.0
+        for pos in portfolio.positions.select_related('asset'):
+            price = closes.get(pos.asset_id)
+            market_value = (pos.quantity * price) if price is not None else None
+            cost_basis = pos.quantity * pos.avg_entry_price
+            if market_value is not None:
+                holdings_value += market_value
+                pnl = market_value - cost_basis
+                pnl_pct = (pnl / cost_basis * 100) if cost_basis else 0.0
+            else:
+                pnl = pnl_pct = None
+            positions.append({
+                'symbol': pos.asset_id,
+                'name': pos.asset.name,
+                'quantity': round(pos.quantity, 6),
+                'avg_entry_price': round(pos.avg_entry_price, 4),
+                'current_price': round(price, 4) if price is not None else None,
+                'market_value': round(market_value, 2) if market_value is not None else None,
+                'unrealized_pnl': round(pnl, 2) if pnl is not None else None,
+                'unrealized_pnl_pct': round(pnl_pct, 2) if pnl_pct is not None else None,
+            })
+
+        total_value = portfolio.cash + holdings_value
+        realized = portfolio.trades.aggregate(s=Sum('realized_pnl'))['s'] or 0.0
+        initial = portfolio.initial_capital or 0.0
+        total_return_pct = ((total_value / initial - 1) * 100) if initial else 0.0
+        recent = portfolio.trades.all()[:self.RECENT_TRADES]
+
+        return Response({
+            'name': portfolio.name,
+            'initial_capital': round(initial, 2),
+            'cash': round(portfolio.cash, 2),
+            'holdings_value': round(holdings_value, 2),
+            'total_value': round(total_value, 2),
+            'total_return_pct': round(total_return_pct, 2),
+            'realized_pnl': round(realized, 2),
+            'num_positions': len(positions),
+            'positions': sorted(positions, key=lambda p: p['market_value'] or 0, reverse=True),
+            'recent_trades': PaperTradeSerializer(recent, many=True).data,
+            'updated_at': portfolio.updated_at,
+        })
+
+
+class PortfolioHistoryView(APIView):
+    """
+    Phase 5 endpoint: the paper-portfolio equity curve.
+
+    GET /api/portfolio/history/ → chronological mark-to-market snapshots
+    (total value / cash / holdings) for the equity-curve chart.
+    """
+
+    def get(self, request):
+        from core.tasks import get_or_create_default_portfolio
+        portfolio = get_or_create_default_portfolio()
+        snapshots = portfolio.snapshots.order_by('timestamp').values(
+            'timestamp', 'cash', 'holdings_value', 'total_value')
+        return Response([
+            {
+                'timestamp': s['timestamp'],
+                'cash': round(s['cash'], 2),
+                'holdings_value': round(s['holdings_value'], 2),
+                'total_value': round(s['total_value'], 2),
+            }
+            for s in snapshots
+        ])
 
 
 class DashboardView(TemplateView):

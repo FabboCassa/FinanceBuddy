@@ -163,6 +163,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'core.tasks.compute_rankings',
         'schedule': crontab(minute='*/30'),
     },
+    'run-paper-trading-every-30-min': {
+        'task': 'core.tasks.run_paper_trading',
+        'schedule': crontab(minute='*/30'),
+    },
 }
 
 # Sentiment NLP flag
@@ -201,3 +205,53 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'finance-buddy@localho
 ALERT_EMAIL_RECIPIENTS = [
     e.strip() for e in os.environ.get('ALERT_EMAIL_RECIPIENTS', '').split(',') if e.strip()
 ]
+
+# -- Logging -----------------------------------------------------------------
+# Make data ingestion observable. INFO from the `core` app (the fetch/score/rank
+# tasks) goes to the console AND to a rotating file under logs/. Because
+# docker-compose mounts the repo at /app, the celery_worker container -- where
+# ingestion actually runs -- writes to the SAME logs/ dir you see locally, so you
+# can open logs/finance_buddy.log to confirm data is really being fetched.
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(exist_ok=True)
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} [{levelname}] {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'ingest_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'finance_buddy.log'),
+            'maxBytes': 5 * 1024 * 1024,  # 5 MB per file
+            'backupCount': 5,
+            'encoding': 'utf-8',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'core': {  # all core.* loggers (tasks, alerts, ...)
+            'handlers': ['console', 'ingest_file'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}
+
+# Let Celery use the Django LOGGING config above instead of hijacking the root
+# logger, so task INFO logs land in the same console + ingest file.
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False

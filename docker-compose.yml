@@ -53,8 +53,10 @@ services:
     <<: *app-build
     container_name: fb_web
     command: python manage.py runserver 0.0.0.0:8000
+    # Host 8001 → container 8000: leaves host 8000 free for a local PyCharm runserver,
+    # so the containerized web and the local dev server can run side by side.
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       <<: *app-env
       RUN_MIGRATIONS: "True"

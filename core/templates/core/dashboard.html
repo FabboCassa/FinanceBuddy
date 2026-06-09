@@ -310,6 +310,115 @@
                     </div>
                 </div>
 
+                <!-- ================= PAPER TRADING (Phase 5: virtual portfolio) ================= -->
+                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-b from-accent-emerald/5 to-transparent pointer-events-none"></div>
+                    <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
+                        <div>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
+                                <i class="fa-solid fa-robot text-accent-emerald"></i> Paper Trading
+                                <span class="text-xxs font-semibold px-2 py-0.5 rounded bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/25">Portafoglio Virtuale</span>
+                            </h2>
+                            <p class="text-xs text-slate-400">Un bot automatico investe <strong>denaro finto</strong> seguendo la stessa strategia del sentiment (compra quando il sentiment è forte, vende su inversione o stop-loss). Nessun rischio reale — serve a vedere come andrebbe.</p>
+                        </div>
+                        <button @click="loadPortfolio()" :disabled="loadingPortfolio"
+                                class="px-3 py-2 bg-slate-800/70 hover:bg-slate-700 disabled:opacity-50 rounded-lg text-xs font-semibold text-slate-200 transition-all flex items-center gap-2">
+                            <i class="fa-solid" :class="loadingPortfolio ? 'fa-circle-notch animate-spin' : 'fa-rotate'"></i>
+                            Aggiorna
+                        </button>
+                    </div>
+
+                    <div x-show="portfolio" class="relative z-10 space-y-4">
+                        <!-- Summary tiles -->
+                        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Valore Totale</p>
+                                <p class="text-base font-bold font-outfit mt-1 text-white" x-text="'€ ' + fmtMoney(portfolio.total_value)"></p>
+                            </div>
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Rendimento</p>
+                                <p class="text-base font-bold font-outfit mt-1" :class="portfolio.total_return_pct >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                   x-text="(portfolio.total_return_pct >= 0 ? '+' : '') + portfolio.total_return_pct.toFixed(2) + '%'"></p>
+                            </div>
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Liquidità</p>
+                                <p class="text-base font-bold font-outfit mt-1 text-slate-300" x-text="'€ ' + fmtMoney(portfolio.cash)"></p>
+                            </div>
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">P&L Realizzato</p>
+                                <p class="text-base font-bold font-outfit mt-1" :class="portfolio.realized_pnl >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                   x-text="(portfolio.realized_pnl >= 0 ? '+€ ' : '-€ ') + fmtMoney(Math.abs(portfolio.realized_pnl))"></p>
+                            </div>
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Posizioni</p>
+                                <p class="text-base font-bold font-outfit mt-1 text-slate-300" x-text="portfolio.num_positions"></p>
+                            </div>
+                        </div>
+
+                        <!-- Equity curve -->
+                        <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner" x-show="portfolioHistory.length > 1">
+                            <div class="flex items-center justify-between px-2 pt-1 pb-2">
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">Equity Curve <span class="text-slate-500 font-normal">(valore del portafoglio virtuale nel tempo)</span></span>
+                                <span class="text-xs text-slate-500" x-text="'Capitale iniziale: € ' + fmtMoney(portfolio.initial_capital)"></span>
+                            </div>
+                            <div id="portfolio-equity-canvas" class="w-full" style="height: 200px;"></div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <!-- Open positions -->
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xs font-bold text-slate-300 mb-2 flex items-center gap-2"><i class="fa-solid fa-layer-group text-accent-emerald"></i> Posizioni aperte</p>
+                                <div x-show="portfolio.positions.length === 0" class="text-xs text-slate-500 py-3">Nessuna posizione aperta — il bot è liquido in attesa di segnali.</div>
+                                <div x-show="portfolio.positions.length > 0" class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                                    <template x-for="p in portfolio.positions" :key="p.symbol">
+                                        <div class="flex items-center justify-between text-xs bg-slate-900/50 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-800/60"
+                                             @click="openRanked(p.symbol)">
+                                            <div class="min-w-0">
+                                                <span class="font-bold text-white" x-text="p.symbol"></span>
+                                                <span class="text-slate-500 ml-1" x-text="p.quantity.toFixed(2) + ' @ €' + p.avg_entry_price.toFixed(2)"></span>
+                                            </div>
+                                            <div class="text-right shrink-0">
+                                                <span class="font-semibold text-slate-300" x-text="p.market_value === null ? '—' : '€ ' + fmtMoney(p.market_value)"></span>
+                                                <span class="ml-2 font-semibold" :class="(p.unrealized_pnl_pct || 0) >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                                      x-text="p.unrealized_pnl_pct === null ? '' : ((p.unrealized_pnl_pct >= 0 ? '+' : '') + p.unrealized_pnl_pct.toFixed(1) + '%')"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Recent trades -->
+                            <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                                <p class="text-xs font-bold text-slate-300 mb-2 flex items-center gap-2"><i class="fa-solid fa-receipt text-accent-violet"></i> Operazioni recenti</p>
+                                <div x-show="portfolio.recent_trades.length === 0" class="text-xs text-slate-500 py-3">Ancora nessuna operazione.</div>
+                                <div x-show="portfolio.recent_trades.length > 0" class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                                    <template x-for="t in portfolio.recent_trades" :key="t.id">
+                                        <div class="flex items-center justify-between text-xs bg-slate-900/50 rounded-lg px-3 py-2">
+                                            <div class="flex items-center gap-2 min-w-0">
+                                                <span class="text-xxs font-bold px-1.5 py-0.5 rounded"
+                                                      :class="t.side === 'BUY' ? 'bg-accent-emerald/15 text-accent-emerald' : 'bg-accent-rose/15 text-accent-rose'"
+                                                      x-text="t.side"></span>
+                                                <span class="font-bold text-white" x-text="t.symbol"></span>
+                                                <span class="text-slate-500" x-text="t.reason === 'stop_loss' ? 'stop-loss' : t.reason"></span>
+                                            </div>
+                                            <div class="text-right shrink-0">
+                                                <span class="text-slate-400" x-text="'€ ' + fmtMoney(t.value)"></span>
+                                                <span x-show="t.realized_pnl !== null" class="ml-2 font-semibold"
+                                                      :class="(t.realized_pnl || 0) >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                                      x-text="t.realized_pnl === null ? '' : ((t.realized_pnl >= 0 ? '+' : '') + fmtMoney(t.realized_pnl))"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-xxs text-slate-600 italic">Simulazione a scopo didattico — non è un consiglio finanziario, nessun denaro reale è coinvolto.</p>
+                    </div>
+                    <div x-show="!portfolio" class="text-sm text-slate-500 py-6 text-center relative z-10">
+                        <i class="fa-solid fa-circle-notch animate-spin mr-2"></i> Caricamento portafoglio…
+                    </div>
+                </div>
+
                 <!-- MAIN CHART SECTION -->
                 <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-brand-500/5 to-transparent pointer-events-none"></div>
@@ -717,6 +826,11 @@
                 ranking: [],
                 rankingOrder: 'top',
                 loadingRanking: false,
+                // Phase 5: paper-trading virtual portfolio
+                portfolio: null,
+                portfolioHistory: [],
+                portfolioChart: null,
+                loadingPortfolio: false,
 
                 // Technical-indicator UI config + state
                 emaConfig: [
@@ -768,6 +882,7 @@
                 init() {
                     this.loadAssets();
                     this.loadRanking();
+                    this.loadPortfolio();
 
                     // Handle window resize dynamically for responsive chart
                     window.addEventListener('resize', () => {
@@ -780,7 +895,62 @@
                         fit(this.rsiChart, 'rsi-canvas', 140);
                         fit(this.macdChart, 'macd-canvas', 150);
                         fit(this.equityChart, 'equity-canvas', 200);
+                        fit(this.portfolioChart, 'portfolio-equity-canvas', 200);
                     });
+                },
+
+                // Phase 5: format a number as a thousands-separated money string.
+                fmtMoney(v) {
+                    if (v === null || v === undefined) return '—';
+                    return Number(v).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                },
+
+                // Phase 5: load the virtual paper-trading portfolio + its equity curve.
+                loadPortfolio() {
+                    this.loadingPortfolio = true;
+                    Promise.all([
+                        fetch('/api/portfolio/').then(res => res.json()),
+                        fetch('/api/portfolio/history/').then(res => res.json()),
+                    ])
+                    .then(([portfolio, history]) => {
+                        this.portfolio = portfolio;
+                        this.portfolioHistory = Array.isArray(history) ? history : [];
+                        this.$nextTick(() => this.renderPortfolioChart());
+                    })
+                    .catch(err => console.error('Error loading portfolio:', err))
+                    .finally(() => { this.loadingPortfolio = false; });
+                },
+
+                renderPortfolioChart() {
+                    const container = document.getElementById('portfolio-equity-canvas');
+                    if (!container) return;
+                    if (this.portfolioChart) { this.portfolioChart.remove(); this.portfolioChart = null; }
+                    if (this.portfolioHistory.length < 2) return;
+
+                    container.innerHTML = '';
+                    this.portfolioChart = LightweightCharts.createChart(container, {
+                        width: container.clientWidth,
+                        height: 200,
+                        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8', fontFamily: 'Inter' },
+                        grid: { vertLines: { color: 'rgba(51, 65, 85, 0.15)' }, horzLines: { color: 'rgba(51, 65, 85, 0.15)' } },
+                        rightPriceScale: { borderColor: 'rgba(51, 65, 85, 0.3)' },
+                        timeScale: { borderColor: 'rgba(51, 65, 85, 0.3)', timeVisible: true, secondsVisible: false },
+                        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    });
+                    const area = this.portfolioChart.addAreaSeries({
+                        lineColor: '#34d399', topColor: 'rgba(52,211,153,0.4)', bottomColor: 'rgba(52,211,153,0.02)',
+                        lineWidth: 2, priceLineVisible: false,
+                    });
+                    // Snapshots can share a calendar second on fast cycles; Lightweight
+                    // Charts requires strictly increasing times, so de-dupe (last wins).
+                    const byTime = new Map();
+                    this.portfolioHistory.forEach(p => {
+                        byTime.set(Math.floor(new Date(p.timestamp).getTime() / 1000), p.total_value);
+                    });
+                    const data = [...byTime.entries()].sort((a, b) => a[0] - b[0])
+                        .map(([time, value]) => ({ time, value }));
+                    area.setData(data);
+                    this.portfolioChart.timeScale().fitContent();
                 },
 
                 loadAssets() {

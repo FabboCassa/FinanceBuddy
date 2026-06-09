@@ -313,3 +313,28 @@ RANK_RSI_OVERBOUGHT = 70
 RANK_RSI_OVERSOLD = 30
 # Daily closes loaded per asset to compute the technical read.
 RANK_TECH_LOOKBACK_DAYS = 60
+
+# -- Phase 5: paper trading (virtual portfolio) -----------------------------
+# A local, no-risk virtual portfolio that runs the Phase 3 sentiment strategy
+# forward in time: each cycle it computes the latest rolling-sentiment signal
+# per asset and places virtual BUY/SELL orders. No broker, no real money — the
+# foundation Alpaca/WebSocket integrations later build on. All money is play
+# money tracked as floats (a simulation, not accounting).
+PAPER_DEFAULT_PORTFOLIO_NAME = 'Default'
+PAPER_INITIAL_CAPITAL = 10000.0
+
+# The strategy mirrors the backtest sandbox so paper results stay comparable.
+PAPER_BUY_THRESHOLD = BACKTEST_BUY_THRESHOLD      # enter when rolling sentiment ≥ this
+PAPER_SELL_THRESHOLD = BACKTEST_SELL_THRESHOLD    # exit when rolling sentiment ≤ this
+PAPER_STOP_LOSS_PCT = BACKTEST_STOP_LOSS_PCT      # also exit if price falls this far below entry
+PAPER_SENTIMENT_WINDOW_DAYS = BACKTEST_SENTIMENT_WINDOW_DAYS  # trailing window for the mean
+
+# Portfolio construction / risk caps.
+PAPER_MAX_POSITIONS = 10          # diversification cap (max simultaneous holdings)
+PAPER_POSITION_FRACTION = 0.10    # target slice of total equity per new position
+PAPER_MIN_TRADE_VALUE = 50.0      # skip dust orders below this cash value
+# Only act on sentiment from verified, non-noise news (reuses VERIFIED_SOURCE_TIERS).
+PAPER_MIN_SENTIMENT_ARTICLES = 1  # min scored articles in the window to trust a signal
+# How far back to look for a tradable "latest close" (markets close on weekends/
+# holidays, so a few days isn't enough; mirror the recent-price window).
+PAPER_PRICE_LOOKBACK_DAYS = 30

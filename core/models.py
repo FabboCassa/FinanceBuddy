@@ -130,3 +130,79 @@ class AssetScore(models.Model):
 
     def __str__(self):
         return f"{self.asset_id}: {self.score:.1f} (#{self.rank})"
+
+
+class Portfolio(models.Model):
+    """A virtual paper-trading portfolio (Phase 5).
+
+    Play money only — no broker, no real orders. The `run_paper_trading` task
+    applies the Phase 3 sentiment strategy forward in time, opening/closing
+    `Position`s and logging `PaperTrade`s against this portfolio's `cash`.
+    A single "Default" portfolio is auto-created; multi-user comes later.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    initial_capital = models.FloatField(default=0.0)
+    cash = models.FloatField(default=0.0, help_text="Uninvested virtual cash.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Portfolio<{self.name}> cash={self.cash:.2f}"
+
+
+class Position(models.Model):
+    """An open virtual holding in a paper portfolio (Phase 5). One per asset."""
+    portfolio = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='positions')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='positions')
+    quantity = models.FloatField(default=0.0)
+    avg_entry_price = models.FloatField(default=0.0)
+    opened_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('portfolio', 'asset')
+        ordering = ['asset_id']
+
+    def __str__(self):
+        return f"{self.asset_id} x{self.quantity:.4f} @ {self.avg_entry_price:.2f}"
+
+
+class PaperTrade(models.Model):
+    """A single executed virtual order against a paper portfolio (Phase 5)."""
+    SIDES = [('BUY', 'BUY'), ('SELL', 'SELL')]
+
+    portfolio = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='trades')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='paper_trades')
+    side = models.CharField(max_length=4, choices=SIDES)
+    quantity = models.FloatField()
+    price = models.FloatField()
+    value = models.FloatField(help_text="quantity × price (cash moved).")
+    reason = models.CharField(max_length=20, help_text="Signal that triggered it (buy/sentiment/stop_loss).")
+    realized_pnl = models.FloatField(null=True, blank=True, help_text="Profit/loss closed by a SELL (null for BUY).")
+    executed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-executed_at']
+        indexes = [models.Index(fields=['portfolio', 'executed_at'])]
+
+    def __str__(self):
+        return f"[{self.side}] {self.asset_id} x{self.quantity:.4f} @ {self.price:.2f}"
+
+
+class PortfolioSnapshot(models.Model):
+    """Point-in-time mark-to-market value of a paper portfolio (Phase 5).
+
+    One row per paper-trading cycle; feeds the equity curve in the dashboard.
+    """
+    portfolio = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='snapshots')
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    cash = models.FloatField()
+    holdings_value = models.FloatField(help_text="Mark-to-market value of all open positions.")
+    total_value = models.FloatField(help_text="cash + holdings_value (the equity).")
+
+    class Meta:
+        ordering = ['timestamp']
+        indexes = [models.Index(fields=['portfolio', 'timestamp'])]
+
+    def __str__(self):
+        return f"{self.portfolio_id} @ {self.timestamp:%Y-%m-%d %H:%M}: {self.total_value:.2f}"

@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-02 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading virtual portfolio) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -44,13 +44,14 @@ FinanceBuddy/
 ├── ROADMAP.md                 # Phased product roadmap
 ├── Dockerfile                 # App image; ENTRYPOINT = entrypoint.sh
 ├── entrypoint.sh              # Wait-for-DB → migrate → bootstrap → exec CMD
-├── docker-compose.yml         # 5-service orchestration; secrets via ${VAR} from .env
+├── docker-compose.yml         # 5-service orchestration; secrets via ${VAR} from .env (web on host 8001)
 ├── .env.example               # Committed env template (placeholders); real .env gitignored
-├── manage.py
+├── manage.py                  # On `runserver`, auto-starts/stops the Compose stack (see docker_boot)
 ├── requirements.txt
 ├── finance_buddy/             # Django project (settings, urls, celery, asgi/wsgi)
-│   ├── settings.py            # Env-driven config + Celery beat schedule
+│   ├── settings.py            # Env-driven config + Celery beat schedule + LOGGING (console + logs/ file)
 │   ├── celery.py              # Celery app + autodiscovery
+│   ├── docker_boot.py         # Dev: `runserver` → `docker compose up -d`, stop on exit (stdlib-only)
 │   └── urls.py                # DRF router (assets/prices/news) + /api/indicators/ + dashboard
 └── core/                      # Single domain app
     ├── constants.py           # Seed assets + tuning params (TA periods, alert thresholds)
@@ -66,15 +67,21 @@ FinanceBuddy/
     ├── rss.py                 # Phase 4: RSS feed fetch + entry normalization (feedparser, lazy import)
     ├── universe.py            # Phase 4: load the asset universe (global top ~500) from data CSV
     ├── ranking.py             # Phase 4: composite "Top Opportunità" score (sentiment+momentum+technical+price)
+    ├── paper_trading.py       # Phase 5: pure paper-trading engine (latest signal, position sizing)
     ├── data/
     │   └── global_top500.csv  # Committed, yfinance-validated global top ~500 by market cap
     ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation/Backtest + Dashboard
     ├── tasks.py               # Celery tasks (incl. startup_catch_up) + ingest/scoring helpers
     ├── migrations/            # 0001_initial, 0002_alert …
     ├── management/commands/
-    │   └── bootstrap_assets.py  # Phase 1 idempotent seeding command
+    │   ├── bootstrap_assets.py  # Phase 1 idempotent seeding command
+    │   └── data_status.py       # On-demand data-freshness report (prices/news/forward-impact)
     ├── tests/                 # Unit tests (test_indicators.py, test_backtest.py …)
     └── templates/core/dashboard.html
+
+logs/                          # Rotating ingestion log (gitignored); written by both the
+                               # local runserver and the celery_worker container (shared via the
+                               # .:/app bind mount) — open logs/finance_buddy.log to watch ingest.
 ```
 
 ---
@@ -86,6 +93,10 @@ Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
                   ├─1:N──► NewsArticle (asset, url)        unique
                   ├─1:N──► Alert        (asset, level, created_at) indexed
                   └─1:1──► AssetScore   (composite opportunity ranking)
+
+Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique — open holdings
+                    ├─1:N─► PaperTrade        executed virtual BUY/SELL orders
+                    └─1:N─► PortfolioSnapshot mark-to-market equity over time
 ```
 
 - **Asset** — `symbol` (PK), `name`, `asset_type` (Stock|ETF).
@@ -103,6 +114,15 @@ Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
   `score` (0–100), `rank`, `components` (JSON: sentiment / sentiment_momentum /
   technical / momentum, each −1..1), `n_articles`, `low_news`, `updated_at`.
   Upserted by `compute_rankings`; read by `/api/ranking/`.
+- **Portfolio** (Phase 5) — a virtual paper-trading account (play money):
+  `name` (unique), `initial_capital`, `cash`. A single "Default" is auto-created.
+- **Position** (Phase 5) — open virtual holding, one per (`portfolio`, `asset`):
+  `quantity`, `avg_entry_price`, `opened_at`.
+- **PaperTrade** (Phase 5) — executed virtual order: `side` (BUY|SELL),
+  `quantity`, `price`, `value`, `reason` (sentiment|stop_loss), `realized_pnl`
+  (SELL only), `executed_at`.
+- **PortfolioSnapshot** (Phase 5) — per-cycle mark-to-market: `timestamp`,
+  `cash`, `holdings_value`, `total_value` (the equity-curve points).
 
 ---
 
@@ -128,6 +148,8 @@ Asset (symbol PK) ──1:N──► PriceData   (asset, timestamp) unique
   categorize new articles, (re)compute forward price impact as history matures).
 - `compute_rankings` — every 30 min (Phase 4: recompute the composite
   opportunity score per asset → upsert AssetScore).
+- `run_paper_trading` — every 30 min (Phase 5: one virtual paper-trading cycle —
+  apply the sentiment strategy forward, open/close positions, snapshot equity).
 - `startup_catch_up` — **event-driven** (on `worker_ready`, not periodic): one-off
   gap-recovery pipeline run when the service comes online (see §6).
 
@@ -147,8 +169,13 @@ web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (ch
    /api/backtest/    → backtest.run_backtest(prices, news, params) → equity curve + trades + signals + metrics
    /api/news/        → reads NewsArticle (filter ?asset= &category= &relevant= &quality=verified|premium|quality|unverified)
    /api/ranking/     → reads AssetScore leaderboard (?limit= &order=top|bottom)
+   /api/portfolio/   → paper portfolio snapshot (cash, positions M2M, P&L, return)
+   /api/portfolio/history/ → PortfolioSnapshot equity curve
    /api/alerts/      → reads fired Alert rows
 beat ─► compute_rankings → ranking.rank_assets(per-asset sentiment+technical+momentum) → AssetScore upsert
+beat ─► run_paper_trading → paper_trading (latest_signal + position_size)
+   sells first (sentiment reversal / stop-loss) → buys strongest signals with cash
+   → Position open/close + PaperTrade log + PortfolioSnapshot (mark-to-market)
 beat ─► update_news_relevance → sources + relevance helpers
    classify_pending_sources    → NewsArticle.source_tier (curated quality registry; also set at ingest)
    categorize_pending_articles → NewsArticle.category/is_relevant (cold-start keyword vote)
@@ -306,11 +333,34 @@ analyzes the missed window, independent of Celery beat timing.
     `compute_rankings` task into `AssetScore` (snapshot, fast reads), served at
     `/api/ranking/`, and shown as a prominent dashboard leaderboard (Migliori /
     Peggiori, click-to-open). Labeled "not investment advice". Pure + DB tests.
-  - ⏭ Next rung: (3) self-supervised classifier fine-tuned on the accumulated
-    `forward_impact` labels (the self-calibration core — waiting on history to
-    mature). Also planned: Reddit ingestion (PRAW), model-based NER for unknown
-    orgs, local FinBERT fine-tuning; Twitter/X deferred on API cost.
-- Phase 5 — Paper/live trading · *planned*
+  - ⚠️ **REMINDER — rung 3 of 3 is DEFERRED, not done.** The self-supervised
+    relevance classifier fine-tuned on the accumulated `forward_impact` labels —
+    **the core of the self-calibration vision** — still has to be built. It was
+    postponed on 2026-06-04 only because there isn't enough resolved
+    `forward_impact` history yet to train on ("needs ~a week+ of data"; real
+    target ~1 year). **When the history matures, build it:** auto-label an
+    article market-moving when |forward return| exceeds a noise threshold, fit a
+    lightweight classifier (scikit-learn over text features / FinBERT embeddings),
+    persist it, and refresh on a schedule. Also still open in Phase 4: Reddit
+    ingestion (PRAW), model-based NER for unknown orgs, local FinBERT fine-tuning;
+    Twitter/X deferred on API cost.
+- **Phase 5 — Paper/live trading 🚧 (in progress)**
+  - ✅ **Virtual paper-trading portfolio (foundation).** A local, no-risk
+    portfolio running the Phase 3 sentiment strategy forward in time.
+    [core/paper_trading.py](core/paper_trading.py) holds the pure engine
+    (`rolling_sentiment`, `latest_signal`, `position_size`); `run_paper_trading`
+    (beat + `startup_catch_up`) orchestrates a cycle via thin helpers in
+    [core/tasks.py](core/tasks.py): sell on sentiment reversal / stop-loss, then
+    buy the strongest fresh signals (fraction-of-equity sizing, max-positions cap,
+    verified-source news only), then snapshot the equity. Models Portfolio /
+    Position / PaperTrade / PortfolioSnapshot (migration 0006); `/api/portfolio/`
+    + `/api/portfolio/history/`; dashboard "Paper Trading" section (value, return,
+    P&L, positions, trades, equity curve). Labeled "not investment advice, no real
+    money". Pure tests ([test_paper_trading.py](core/tests/test_paper_trading.py))
+    + DB cycle tests ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py));
+    128 tests total.
+  - ⏭ Next: Alpaca paper-broker API (encrypted keys via `cryptography.fernet`),
+    multi-user portfolios, Django Channels WebSocket real-time price streaming.
 - Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
 
 ---

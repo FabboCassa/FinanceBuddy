@@ -85,9 +85,20 @@ graph TD
 > ingeriscono **25 feed RSS di testate di qualità in 11 paesi** (US/UK/DE/FR/IT/NL/ES/JP/HK/SG/IN — CNBC, FT,
 > Economist, NYT, Guardian, Telegraph, BBC, Handelsblatt, FAZ, Spiegel, Le Monde, Il Sole 24 Ore, ANSA, Corriere,
 > NRC, El País, Expansión, Nikkei, Japan Times, SCMP, Straits Times, Economic Times…), tutti validati dal vivo,
-> attribuendo ogni notizia agli asset citati e taggandone il tier. **Prossimo gradino:** classificatore auto-supervisionato addestrato sull'impatto
-> reale accumulato (gradino 3, in attesa che lo storico maturi); poi Reddit, NER a modello, fine-tuning locale.
-> Vedi [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
+> attribuendo ogni notizia agli asset citati e taggandone il tier.
+>
+> ⚠️ **PROMEMORIA — gradino 3 DA FARE (rimandato, non completato).** Il
+> **classificatore auto-supervisionato** addestrato sull'impatto di prezzo reale
+> accumulato (`forward_impact`) — **il cuore dell'auto-calibrazione** — è stato
+> rimandato il 2026-06-04 solo perché lo storico non è ancora abbastanza maturo
+> per l'addestramento ("serve ~1 settimana+ di dati"; obiettivo reale ~1 anno).
+> **Quando i dati saranno maturi va costruito:** auto-etichetta un articolo come
+> "muove-mercato" quando |rendimento forward| supera una soglia di rumore,
+> addestra un classificatore leggero (scikit-learn su feature testuali / embedding
+> FinBERT), persistilo e ri-addestralo a intervalli. Restano aperti anche: Reddit
+> (PRAW), NER a modello per organizzazioni non tracciate, fine-tuning locale di
+> FinBERT; Twitter/X rimandato per costo API. Vedi
+> [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
 
 * **Funzionalità:**
   * **Filtro di Rilevanza Auto-Appreso (Self-Calibrating):** ✅ *cold-start implementato.* L'obiettivo finale è che il sistema **impari da solo** cosa è rilevante osservando la reazione di mercato alle notizie su una finestra lunga (~1 anno), senza regole scritte a mano. Pipeline a feedback: per ogni articolo si registra l'**impatto di prezzo forward** (rendimento a 1/3/7gg → vedi matrice di correlazione, Fase 2), si accumulano gli esempi e si addestra/aggiorna un classificatore che apprende quali temi muovono davvero il prezzo. Categorie d'interesse note a priori per il bootstrap: **earnings/bilanci, guidance, M&A, regolatorio/antitrust, geopolitica, politica monetaria/tassi, conferenze ed eventi aziendali**; rumore da scartare: cronaca nera, gossip, sport. Aggiungere al modello `NewsArticle` i campi `category`, `is_relevant` e `forward_impact` ed esporre il filtro in dashboard. Approccio incrementale: (1) keyword per tema (cold-start) ✅, (2) *zero-shot* NLI (es. `facebook/bart-large-mnli`) ✅, (3) **classificatore auto-supervisionato fine-tuned** etichettato dall'impatto di prezzo reale.
@@ -107,11 +118,26 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 
 ---
 
-## 💸 Fase 5: Paper & Live Trading Automatizzato (Lungo Termine)
+## 💸 Fase 5: Paper & Live Trading Automatizzato (Lungo Termine) 🚧 *(in corso)*
 **Obiettivo:** Trasformare la piattaforma in un Trading Bot completo ed autonomo, capace di eseguire operazioni finanziarie reali o simulate.
 
+> **Stato:** avviata dal **portafoglio virtuale (paper trading)** — la base. Un bot
+> applica *in avanti nel tempo* la stessa strategia sentiment della Fase 3 (entra
+> quando il sentiment medio mobile è forte, esce su inversione o stop-loss),
+> investendo **denaro finto** (€10k iniziali): motore puro [core/paper_trading.py](core/paper_trading.py)
+> (`latest_signal`, `position_size`), orchestrato dal task `run_paper_trading`
+> (vende prima per liberare cassa + stop-loss, poi compra i segnali più forti con
+> sizing a frazione di equity, tetto sul numero di posizioni, solo news da fonti
+> verificate), con snapshot di equity ad ogni ciclo. Modelli Portfolio/Position/
+> PaperTrade/PortfolioSnapshot, API `/api/portfolio/` + `/api/portfolio/history/`,
+> sezione "Paper Trading" in dashboard (valore, rendimento, P&L, posizioni,
+> operazioni, equity curve). Nessun broker, nessun rischio reale. **Prossimi
+> gradini:** API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`),
+> multi-utente, streaming real-time via WebSocket (Django Channels). Vedi
+> [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
+
 * **Funzionalità:**
-  * **Paper Trading Dashboard:** Un portafoglio virtuale per simulare in tempo reale le performance del bot con denaro virtuale, calcolando profitti e perdite storiche.
+  * **Paper Trading Dashboard:** ✅ *implementato.* Un portafoglio virtuale per simulare in tempo reale le performance del bot con denaro virtuale, calcolando profitti e perdite storiche.
   * **Connessione API Broker:** Integrazione con broker online e piattaforme di scambio per inviare ordini di acquisto/vendita in automatico quando scattano i segnali di trading della Fase 3.
   * **Dashboard Multi-Utente:** Supporto multi-account con crittografia forte delle chiavi API personali dei broker.
   * **Streaming Real-Time:** Sostituzione delle chiamate polling con streaming in tempo reale dei prezzi tramite WebSockets.

@@ -38,6 +38,9 @@ staticfiles/
 celerybeat-schedule
 celerybeat.pid
 
+# Logs (ingestion log written by runserver + celery_worker; see settings LOGGING)
+logs/
+
 # IDEs
 .vscode/
 .idea/

@@ -10,7 +10,10 @@ from celery import shared_task
 from celery.signals import worker_ready
 import yfinance as yf
 
-from core.models import Asset, PriceData, NewsArticle
+from core.models import (
+    Asset, PriceData, NewsArticle,
+    Portfolio, Position, PaperTrade, PortfolioSnapshot,
+)
 from core import constants
 
 logger = logging.getLogger(__name__)
@@ -117,6 +120,7 @@ def fetch_prices_batched(assets, period, interval, batch_size=None):
     by_symbol = {a.symbol: a for a in assets}
     symbols = list(by_symbol)
     created_total = updated_total = 0
+    with_data = empty = 0  # symbols yfinance actually returned bars for vs. none
 
     for start in range(0, len(symbols), batch_size):
         batch = symbols[start:start + batch_size]
@@ -131,12 +135,23 @@ def fetch_prices_batched(assets, period, interval, batch_size=None):
                 sub = data[symbol] if len(batch) > 1 else data
                 sub = sub.dropna(how='all')
                 if sub.empty:
+                    empty += 1
                     continue
+                with_data += 1
                 c, u = _persist_history(by_symbol[symbol], sub)
                 created_total += c
                 updated_total += u
             except Exception as e:
                 logger.error(f"Price persist failed for {symbol}: {e}")
+
+    # Unambiguous: if `with_data` is 0 the source returned nothing (rate-limited
+    # / blocked) — not "everything already up to date". Distinguishing the two is
+    # exactly what tells you whether ingestion is really working.
+    logger.info(
+        "Price fetch (period=%s interval=%s): %d/%d symbols returned data "
+        "(%d empty); %d bars created, %d updated.",
+        period, interval, with_data, len(symbols), empty, created_total, updated_total,
+    )
     return created_total, updated_total
 
 
@@ -492,6 +507,162 @@ def gather_ranking_inputs():
 
 
 # ---------------------------------------------------------------------------
+# Phase 5: paper-trading orchestration (thin task + reusable helpers)
+# ---------------------------------------------------------------------------
+
+def get_or_create_default_portfolio():
+    """Return the singleton virtual portfolio, seeding it with starting cash."""
+    portfolio, _ = Portfolio.objects.get_or_create(
+        name=constants.PAPER_DEFAULT_PORTFOLIO_NAME,
+        defaults={'initial_capital': constants.PAPER_INITIAL_CAPITAL,
+                  'cash': constants.PAPER_INITIAL_CAPITAL},
+    )
+    return portfolio
+
+
+def _latest_closes(lookback_days=constants.PAPER_PRICE_LOOKBACK_DAYS):
+    """{symbol: latest close (float)} from prices within the recent lookback.
+
+    One query, ordered so the last row per asset wins → its most recent close.
+    Assets with no recent price are absent (skipped from trading that cycle).
+    """
+    since = timezone.now() - datetime.timedelta(days=lookback_days)
+    closes = {}
+    rows = (PriceData.objects.filter(timestamp__gte=since)
+            .order_by('asset_id', 'timestamp')
+            .values_list('asset_id', 'close'))
+    for symbol, close in rows:
+        closes[symbol] = float(close)
+    return closes
+
+
+def _window_sentiments(window_days=constants.PAPER_SENTIMENT_WINDOW_DAYS):
+    """{symbol: rolling-mean sentiment} over verified, non-noise scored news.
+
+    One query for the trailing window, grouped per asset and reduced with the
+    pure ``paper_trading.rolling_sentiment`` so the live signal matches its tests.
+    """
+    from core import paper_trading
+    from collections import defaultdict
+
+    now = timezone.now()
+    since = now - datetime.timedelta(days=window_days)
+    rows = (NewsArticle.objects
+            .filter(sentiment_score__isnull=False,
+                    source_tier__in=constants.VERIFIED_SOURCE_TIERS,
+                    timestamp__gte=since)
+            .exclude(is_relevant=False)
+            .values('asset_id', 'timestamp', 'sentiment_score'))
+
+    by_symbol = defaultdict(list)
+    for r in rows:
+        by_symbol[r['asset_id']].append(r)
+    return {symbol: paper_trading.rolling_sentiment(items, window_days, now)
+            for symbol, items in by_symbol.items()}
+
+
+def _execute_sells(portfolio, positions, closes, sentiments):
+    """Close positions whose signal says sell. Mutates cash + DB. Returns count."""
+    from core import paper_trading
+    sold = 0
+    for pos in positions:
+        price = closes.get(pos.asset_id)
+        if price is None:
+            continue
+        action, reason = paper_trading.latest_signal(
+            price, sentiments.get(pos.asset_id), holding=True,
+            entry_price=pos.avg_entry_price)
+        if action != 'sell':
+            continue
+        proceeds = pos.quantity * price
+        realized = (price - pos.avg_entry_price) * pos.quantity
+        portfolio.cash += proceeds
+        PaperTrade.objects.create(
+            portfolio=portfolio, asset_id=pos.asset_id, side='SELL',
+            quantity=pos.quantity, price=price, value=proceeds,
+            reason=reason, realized_pnl=realized)
+        pos.delete()
+        sold += 1
+    return sold
+
+
+def _execute_buys(portfolio, held_symbols, closes, sentiments, total_equity):
+    """Open new positions for buy signals, best sentiment first. Returns count."""
+    from core import paper_trading
+
+    candidates = []
+    for symbol, sentiment in sentiments.items():
+        if symbol in held_symbols:
+            continue
+        price = closes.get(symbol)
+        action, _ = paper_trading.latest_signal(
+            price, sentiment, holding=False, entry_price=None)
+        if action == 'buy':
+            candidates.append((sentiment, symbol, price))
+    candidates.sort(reverse=True)  # strongest sentiment gets cash first
+
+    n_open = len(held_symbols)
+    bought = 0
+    for sentiment, symbol, price in candidates:
+        qty = paper_trading.position_size(total_equity, portfolio.cash, price, n_open)
+        if qty <= 0:
+            continue
+        cost = qty * price
+        portfolio.cash -= cost
+        Position.objects.create(
+            portfolio=portfolio, asset_id=symbol,
+            quantity=qty, avg_entry_price=price)
+        PaperTrade.objects.create(
+            portfolio=portfolio, asset_id=symbol, side='BUY',
+            quantity=qty, price=price, value=cost, reason='sentiment')
+        n_open += 1
+        bought += 1
+    return bought
+
+
+def _mark_to_market(portfolio, closes):
+    """Holdings value of all open positions at the latest closes (float)."""
+    total = 0.0
+    for pos in portfolio.positions.all():
+        price = closes.get(pos.asset_id)
+        if price is not None:
+            total += pos.quantity * price
+    return total
+
+
+def run_paper_trading_cycle(portfolio=None):
+    """Apply the sentiment strategy forward once and snapshot the equity.
+
+    Sells first (frees cash + protects via stop-loss), then buys the strongest
+    fresh signals with the freed/idle cash, then records a mark-to-market
+    snapshot for the equity curve. Idempotent in spirit: only acts on signals,
+    never double-opens a held asset.
+    """
+    portfolio = portfolio or get_or_create_default_portfolio()
+    closes = _latest_closes()
+    sentiments = _window_sentiments()
+
+    positions = list(portfolio.positions.all())
+    sold = _execute_sells(portfolio, positions, closes, sentiments)
+
+    held_symbols = set(portfolio.positions.values_list('asset_id', flat=True))
+    total_equity = portfolio.cash + _mark_to_market(portfolio, closes)
+    bought = _execute_buys(portfolio, held_symbols, closes, sentiments, total_equity)
+
+    holdings_value = _mark_to_market(portfolio, closes)
+    total_value = portfolio.cash + holdings_value
+    portfolio.save(update_fields=['cash', 'updated_at'])
+    PortfolioSnapshot.objects.create(
+        portfolio=portfolio, cash=portfolio.cash,
+        holdings_value=holdings_value, total_value=total_value)
+
+    logger.info(
+        f"Paper trading: {bought} buys, {sold} sells, "
+        f"equity {total_value:.2f} (cash {portfolio.cash:.2f}).")
+    return {'bought': bought, 'sold': sold, 'total_value': round(total_value, 2)}
+
+
+# ---------------------------------------------------------------------------
 # Celery tasks
 # ---------------------------------------------------------------------------
 
@@ -508,7 +679,16 @@ def fetch_market_data():
         period=constants.RECENT_PRICE_PERIOD,
         interval=constants.RECENT_PRICE_INTERVAL,
     )
-    logger.info(f"Market data: created {created} prices, updated {updated} across {assets.count()} assets.")
+    # Freshness snapshot: total bars stored + newest timestamp. Watching the
+    # latest bar advance day over day confirms history is accumulating (the data
+    # the deferred self-supervised relevance model will eventually train on).
+    latest = (PriceData.objects.order_by('-timestamp')
+              .values_list('timestamp', flat=True).first())
+    logger.info(
+        "Market data: +%d new / %d updated bars across %d assets; "
+        "DB now holds %d bars, latest at %s.",
+        created, updated, assets.count(), PriceData.objects.count(), latest,
+    )
 
 
 @shared_task
@@ -576,6 +756,12 @@ def compute_rankings():
 
 
 @shared_task
+def run_paper_trading():
+    """Periodic task (Phase 5): run one virtual paper-trading cycle."""
+    return run_paper_trading_cycle()
+
+
+@shared_task
 def check_sentiment_alerts():
     """Periodic task: fire sentiment-threshold alerts for assets that crossed limits."""
     from core.alerts import run_sentiment_alert_check
@@ -612,6 +798,7 @@ def startup_catch_up():
     categorized = categorize_pending_articles()
     backfill_forward_impact()
     compute_rankings()
+    run_paper_trading_cycle()
     from core.alerts import run_sentiment_alert_check
     fired = run_sentiment_alert_check()
     logger.info(

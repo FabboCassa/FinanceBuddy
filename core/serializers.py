@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from core.models import Asset, PriceData, NewsArticle, Alert, AssetScore
+from core.models import (
+    Asset, PriceData, NewsArticle, Alert, AssetScore, PaperTrade,
+)
 from core import constants
 
 
@@ -56,6 +58,19 @@ class AssetScoreSerializer(serializers.ModelSerializer):
         fields = [
             'symbol', 'name', 'asset_type', 'score', 'rank',
             'components', 'n_articles', 'low_news', 'updated_at',
+        ]
+
+
+class PaperTradeSerializer(serializers.ModelSerializer):
+    """A single executed virtual order (Phase 5)."""
+    symbol = serializers.CharField(source='asset_id', read_only=True)
+    name = serializers.CharField(source='asset.name', read_only=True)
+
+    class Meta:
+        model = PaperTrade
+        fields = [
+            'id', 'symbol', 'name', 'side', 'quantity', 'price',
+            'value', 'reason', 'realized_pnl', 'executed_at',
         ]
 
 
