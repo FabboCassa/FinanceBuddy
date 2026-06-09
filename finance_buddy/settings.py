@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from celery.schedules import crontab
 
@@ -26,17 +27,20 @@ ALLOWED_HOSTS = ['*']
 
 # Application definition
 INSTALLED_APPS = [
+    # 'daphne' must precede staticfiles so its ASGI runserver takes over (Channels).
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
+
     # Third party apps
     'rest_framework',
     'django_filters',
-    
+    'channels',
+
     # Local apps
     'core',
 ]
@@ -71,6 +75,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'finance_buddy.wsgi.application'
 ASGI_APPLICATION = 'finance_buddy.asgi.application'
+
+# Channels (Phase 5 real-time): Redis-backed channel layer for WebSocket fan-out.
+# Defaults to localhost so a local dev server reaches the Docker-exposed Redis;
+# Docker sets REDIS_URL to the in-network host.
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {'hosts': [REDIS_URL]},
+    },
+}
+# Under the test runner use the in-process layer: no Redis dependency, and the
+# paper-trading cycle's broadcast stays instant instead of opening a connection.
+if 'test' in sys.argv:
+    CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases

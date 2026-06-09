@@ -147,18 +147,25 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 > confrontabili), mostrate come riga "Performance" in dashboard con tooltip in
 > linguaggio semplice.
 >
+> Aggiunto poi lo **streaming real-time via WebSocket** (Django Channels + Redis +
+> Daphne/ASGI): la dashboard si sottoscrive a `ws/portfolio/` e si aggiorna da sola
+> (valore, posizioni, operazioni, equity curve) a ogni ciclo del bot, senza
+> ricaricare; il consumer ([core/consumers.py](core/consumers.py)) e l'endpoint REST
+> condividono lo stesso payload ([core/portfolio.py](core/portfolio.py)), il
+> broadcaster è [core/realtime.py](core/realtime.py). Fallback automatico a polling
+> 60s + riconnessione se il socket cade.
+>
 > **Decisione:** Alpaca **non** è necessaria per la simulazione — costi e metriche
 > sono ora modellati internamente; il broker resta solo la rampa verso i soldi
 > *veri* (rischio reale), fuori scope per ora. **Prossimi gradini (opzionali):**
-> API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`), multi-utente,
-> streaming real-time via WebSocket (Django Channels). Vedi
-> [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
+> API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`) e multi-utente.
+> Vedi [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
 
 * **Funzionalità:**
   * **Paper Trading Dashboard:** ✅ *implementato.* Un portafoglio virtuale per simulare in tempo reale le performance del bot con denaro virtuale, calcolando profitti e perdite storiche.
   * **Connessione API Broker:** Integrazione con broker online e piattaforme di scambio per inviare ordini di acquisto/vendita in automatico quando scattano i segnali di trading della Fase 3.
   * **Dashboard Multi-Utente:** Supporto multi-account con crittografia forte delle chiavi API personali dei broker.
-  * **Streaming Real-Time:** Sostituzione delle chiamate polling con streaming in tempo reale dei prezzi tramite WebSockets.
+  * **Streaming Real-Time:** ✅ *implementato.* La dashboard riceve gli aggiornamenti del portafoglio in tempo reale via WebSocket (Django Channels), sostituendo il polling; resta un fallback a polling se il socket cade.
 * **Tecnologie:**
   * **Broker API:** Alpaca Trade API (gratuita per il paper trading), `ib_insync` (per Interactive Brokers), CCXT (per Exchange di Criptovalute).
   * **Sicurezza:** Moduli crittografici di Python (`cryptography.fernet`) per salvare le chiavi API in modo ultra-sicuro nel database.

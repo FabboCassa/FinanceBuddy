@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading virtual portfolio + execution costs + live performance metrics) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading portfolio + execution costs + live performance metrics + real-time WebSocket streaming) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -26,13 +26,14 @@ add/remove assets from the dashboard.
 | Layer       | Technology                                                        |
 |-------------|-------------------------------------------------------------------|
 | Backend     | Python 3.11+, Django 5.x, Django REST Framework, django-filter    |
-| Async/Queue | Celery 5.x (worker + beat), Redis 7 (broker & result backend)     |
+| Async/Queue | Celery 5.x (worker + beat), Redis 7 (broker & result backend + Channels layer) |
 | Database    | PostgreSQL 15 (Alpine)                                             |
 | NLP         | HuggingFace Transformers — ProsusAI/finbert (sentiment) + facebook/bart-large-mnli (zero-shot theme categorization, opt-in), PyTorch (CPU-only) |
 | Data feed   | yfinance (prices + per-ticker news) + feedparser (curated quality RSS, linked to assets via NER) |
 | TA / math   | pandas + numpy (pure-pandas EMA/RSI/MACD + backtester; Backtrader/pandas-ta avoided — numpy 2.x) |
 | Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned) |
-| Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat)       |
+| Real-time   | Django Channels 4 + channels-redis + Daphne (ASGI) — WebSocket portfolio stream (Phase 5) |
+| Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat); web serves ASGI via Daphne |
 
 ---
 
@@ -52,6 +53,7 @@ FinanceBuddy/
 │   ├── settings.py            # Env-driven config + Celery beat schedule + LOGGING (console + logs/ file)
 │   ├── celery.py              # Celery app + autodiscovery
 │   ├── docker_boot.py         # Dev: `runserver` → `docker compose up -d`, stop on exit (stdlib-only)
+│   ├── asgi.py                # ASGI ProtocolTypeRouter: HTTP (Django) + WebSocket (Channels) — Phase 5
 │   └── urls.py                # DRF router (assets/prices/news) + /api/indicators/ + dashboard
 └── core/                      # Single domain app
     ├── constants.py           # Seed assets + tuning params (TA periods, alert thresholds)
@@ -70,6 +72,10 @@ FinanceBuddy/
     ├── universe.py            # Phase 4: load the asset universe (global top ~500) from data CSV
     ├── ranking.py             # Phase 4: composite "Top Opportunità" score (sentiment+momentum+technical+price)
     ├── paper_trading.py       # Phase 5: pure paper-trading engine (latest signal, position sizing)
+    ├── portfolio.py           # Phase 5: shared portfolio read model (payload for REST + WebSocket)
+    ├── realtime.py            # Phase 5: WebSocket broadcaster (push portfolio snapshot to dashboards)
+    ├── consumers.py           # Phase 5: PortfolioConsumer (Channels WebSocket stream)
+    ├── routing.py             # Phase 5: websocket_urlpatterns (ws/portfolio/)
     ├── data/
     │   └── global_top500.csv  # Committed, yfinance-validated global top ~500 by market cap
     ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation/Backtest + Dashboard
@@ -132,9 +138,9 @@ Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique —
 
 | Service        | Role                                                                 |
 |----------------|----------------------------------------------------------------------|
-| `web`          | Django/DRF API + dashboard. **Sole owner** of migrations + bootstrap. |
+| `web`          | Django/DRF API + dashboard, **ASGI via Daphne** (HTTP + `ws/portfolio/`). **Sole owner** of migrations + bootstrap. |
 | `db`           | PostgreSQL persistent store (`postgres_data` volume).                |
-| `redis`        | Celery broker + result backend.                                      |
+| `redis`        | Celery broker + result backend, **and the Channels layer** (WebSocket fan-out). |
 | `celery_worker`| Executes ingest/scoring tasks; loads FinBERT (cache in `hf_cache`).  |
 | `celery_beat`  | Triggers periodic tasks on the schedule below.                       |
 
@@ -171,11 +177,12 @@ web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (ch
    /api/backtest/    → backtest.run_backtest(prices, news, params) → equity curve + trades + signals + metrics
    /api/news/        → reads NewsArticle (filter ?asset= &category= &relevant= &quality=verified|premium|quality|unverified)
    /api/ranking/     → reads AssetScore leaderboard (?limit= &order=top|bottom)
-   /api/portfolio/   → paper portfolio snapshot (cash, positions M2M, P&L, return)
+   /api/portfolio/   → paper portfolio snapshot (cash, positions M2M, P&L, return, performance)
    /api/portfolio/history/ → PortfolioSnapshot equity curve
+   ws/portfolio/     → WebSocket: same snapshot pushed live after each paper cycle
    /api/alerts/      → reads fired Alert rows
 beat ─► compute_rankings → ranking.rank_assets(per-asset sentiment+technical+momentum) → AssetScore upsert
-beat ─► run_paper_trading → paper_trading (latest_signal + position_size)
+beat ─► run_paper_trading → paper_trading (latest_signal + position_size) → realtime.broadcast (WS push)
    sells first (sentiment reversal / stop-loss) → buys strongest signals with cash
    → Position open/close + PaperTrade log + PortfolioSnapshot (mark-to-market)
 beat ─► update_news_relevance → sources + relevance helpers
@@ -376,15 +383,27 @@ analyzes the missed window, independent of Celery beat timing.
     shared [core/metrics.py](core/metrics.py) — same math as the Phase 3 backtest,
     so paper and backtest stay comparable. Shown as a "Performance" tile row in the
     dashboard with plain-language tooltips.
+  - ✅ **Real-time WebSocket streaming.** Django Channels over the Redis channel
+    layer: [core/consumers.py](core/consumers.py) `PortfolioConsumer` (route
+    `ws/portfolio/` in [core/routing.py](core/routing.py)) sends a snapshot on
+    connect, then relays each push; [core/realtime.py](core/realtime.py) broadcasts
+    the fresh snapshot after every paper-trading cycle. The REST endpoint and the
+    socket share one payload builder ([core/portfolio.py](core/portfolio.py)).
+    [asgi.py](finance_buddy/asgi.py) routes HTTP→Django + WS→Channels; `daphne`
+    leads `INSTALLED_APPS` so `runserver` serves ASGI. The dashboard subscribes and
+    updates the tiles/positions/trades/equity-curve live, with a 60s polling
+    fallback + auto-reconnect when the socket drops. Tests use the in-memory layer
+    (no Redis needed).
   - Pure tests ([test_paper_trading.py](core/tests/test_paper_trading.py) +
     [test_metrics.py](core/tests/test_metrics.py)) + DB cycle tests
-    ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py));
-    147 tests total.
-  - ⏭ Next: Alpaca paper-broker API (encrypted keys via `cryptography.fernet`),
-    multi-user portfolios, Django Channels WebSocket real-time price streaming.
-    *(Note: Alpaca is optional — the internal simulation now models costs + metrics
-    on its own; the broker is only the on-ramp to live money, which carries real
-    risk and stays out of scope for now.)*
+    ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py)) +
+    consumer tests ([test_consumers.py](core/tests/test_consumers.py));
+    149 tests total.
+  - ⏭ Next (optional): Alpaca paper-broker API (encrypted keys via
+    `cryptography.fernet`) and multi-user portfolios.
+    *(Note: Alpaca is optional — the internal simulation models costs + metrics on
+    its own; the broker is only the on-ramp to live money, which carries real risk
+    and stays out of scope for now.)*
 - Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
 
 ---

@@ -873,6 +873,7 @@
                 portfolioHistory: [],
                 portfolioChart: null,
                 loadingPortfolio: false,
+                _portfolioSocket: null,     // live WebSocket; null when polling fallback is active
 
                 // Technical-indicator UI config + state
                 emaConfig: [
@@ -925,6 +926,7 @@
                     this.loadAssets();
                     this.loadRanking();
                     this.loadPortfolio();
+                    this.connectPortfolioSocket();
 
                     // Handle window resize dynamically for responsive chart
                     window.addEventListener('resize', () => {
@@ -961,6 +963,42 @@
                     })
                     .catch(err => console.error('Error loading portfolio:', err))
                     .finally(() => { this.loadingPortfolio = false; });
+                },
+
+                // Phase 5: live updates over WebSocket (Django Channels). Each paper-
+                // trading cycle pushes a fresh snapshot; we refresh the tiles instantly
+                // and extend the equity curve. Auto-reconnects, and a 60s poll runs only
+                // while the socket is down, so the dashboard still updates as a fallback.
+                connectPortfolioSocket() {
+                    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+                    const url = `${proto}://${location.host}/ws/portfolio/`;
+                    let primed = false;  // skip the connect-time snapshot for curve appends
+                    const open = () => {
+                        let ws;
+                        try { ws = new WebSocket(url); } catch (e) { return; }
+                        this._portfolioSocket = ws;
+                        ws.onmessage = (ev) => {
+                            let msg;
+                            try { msg = JSON.parse(ev.data); } catch (e) { return; }
+                            if (!msg || msg.type !== 'portfolio.update') return;
+                            this.portfolio = msg.payload;
+                            if (primed) {
+                                // A genuine new cycle → extend the live equity curve.
+                                this.portfolioHistory.push({
+                                    timestamp: new Date().toISOString(),
+                                    cash: msg.payload.cash,
+                                    holdings_value: msg.payload.holdings_value,
+                                    total_value: msg.payload.total_value,
+                                });
+                                this.$nextTick(() => this.renderPortfolioChart());
+                            }
+                            primed = true;
+                        };
+                        ws.onclose = () => { this._portfolioSocket = null; setTimeout(open, 5000); };
+                        ws.onerror = () => { try { ws.close(); } catch (e) {} };
+                    };
+                    open();
+                    setInterval(() => { if (!this._portfolioSocket) this.loadPortfolio(); }, 60000);
                 },
 
                 renderPortfolioChart() {

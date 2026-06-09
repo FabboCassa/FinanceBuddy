@@ -668,6 +668,11 @@ def run_paper_trading_cycle(portfolio=None):
     logger.info(
         f"Paper trading: {bought} buys, {sold} sells, "
         f"equity {total_value:.2f} (cash {portfolio.cash:.2f}).")
+
+    # Push the fresh snapshot to any connected dashboards (best-effort).
+    from core.realtime import broadcast_portfolio_update
+    broadcast_portfolio_update(portfolio)
+
     return {'bought': bought, 'sold': sold, 'total_value': round(total_value, 2)}
 
 

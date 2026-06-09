@@ -11,3 +11,7 @@ transformers>=4.38.0
 torch>=2.2.0
 requests>=2.31.0
 gunicorn>=21.2.0
+# Phase 5: real-time WebSocket streaming (ASGI) for the live dashboard.
+channels>=4.0.0
+channels-redis>=4.2.0
+daphne>=4.1.0
