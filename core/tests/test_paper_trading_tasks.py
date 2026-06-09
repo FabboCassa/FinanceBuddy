@@ -43,10 +43,15 @@ class RunPaperTradingCycleTests(TestCase):
         self.assertEqual(result['sold'], 0)
         self.assertTrue(Position.objects.filter(asset_id='BULL').exists())
         self.assertFalse(Position.objects.filter(asset_id='BEAR').exists())
-        # A BUY trade was logged and cash dropped by its value.
+        # A BUY trade was logged and cash dropped by its gross value *plus* the
+        # commission (the fill price also carries slippage above the 100.0 close).
+        from core import paper_trading
         trade = PaperTrade.objects.get(asset_id='BULL', side='BUY')
         portfolio = Portfolio.objects.get()
-        self.assertAlmostEqual(portfolio.cash, constants.PAPER_INITIAL_CAPITAL - trade.value, places=2)
+        fee = paper_trading.commission(trade.value)
+        self.assertAlmostEqual(
+            portfolio.cash, constants.PAPER_INITIAL_CAPITAL - trade.value - fee, places=2)
+        self.assertGreater(trade.price, 100.0)  # slippage made the buy fill worse
 
     def test_does_not_double_open_held_asset(self):
         self._news(self.bull, 0.8)
@@ -70,7 +75,15 @@ class RunPaperTradingCycleTests(TestCase):
         self.assertFalse(Position.objects.filter(asset_id='BULL').exists())
         sell = PaperTrade.objects.get(asset_id='BULL', side='SELL')
         self.assertEqual(sell.reason, 'stop_loss')
-        self.assertAlmostEqual(sell.realized_pnl, (80.0 - 100.0) * 10.0, places=2)
+        # Net P&L = round-trip price move at the slippage-adjusted sell fill, minus
+        # both the buy and sell commissions → strictly worse than the gross −200.
+        from core import paper_trading
+        fill = paper_trading.execution_price(80.0, 'sell')
+        expected = ((fill - 100.0) * 10.0
+                    - paper_trading.commission(10.0 * fill)
+                    - paper_trading.commission(10.0 * 100.0))
+        self.assertAlmostEqual(sell.realized_pnl, expected, places=2)
+        self.assertLess(sell.realized_pnl, (80.0 - 100.0) * 10.0)
 
     def test_sells_on_sentiment_reversal(self):
         portfolio = tasks.get_or_create_default_portfolio()
@@ -99,6 +112,34 @@ class RunPaperTradingCycleTests(TestCase):
         self._price(self.bull, 100.0)
         result = tasks.run_paper_trading_cycle()
         self.assertEqual(result['bought'], 0)
+
+    def test_performance_block_reports_win_rate_and_alpha(self):
+        # Open a position, then close it for a profit on a sentiment reversal so
+        # there is one winning closed trade and a benchmark to compare against.
+        portfolio = tasks.get_or_create_default_portfolio()
+        snap = PortfolioSnapshot.objects.create(
+            portfolio=portfolio, cash=10000.0, holdings_value=0.0, total_value=10000.0)
+        # Backdate inception so the benchmark window spans real price history
+        # (timestamp is auto_now_add, so override it after creation).
+        PortfolioSnapshot.objects.filter(pk=snap.pk).update(
+            timestamp=self.now - datetime.timedelta(days=5))
+        Position.objects.create(portfolio=portfolio, asset=self.bull,
+                                quantity=10.0, avg_entry_price=100.0)
+        self._price(self.bull, 100.0, days_ago=5)  # benchmark start price
+        self._news(self.bull, -0.5)                # reversal → sell
+        self._price(self.bull, 120.0)              # up 20% → winning trade
+
+        tasks.run_paper_trading_cycle()
+
+        from core.views import PortfolioView
+        from rest_framework.test import APIRequestFactory
+        request = APIRequestFactory().get('/api/portfolio/')
+        perf = PortfolioView().get(request).data['performance']
+
+        self.assertEqual(perf['num_closed_trades'], 1)
+        self.assertEqual(perf['win_rate_pct'], 100.0)
+        self.assertIsNotNone(perf['buy_hold_return_pct'])
+        self.assertIsNotNone(perf['alpha_pct'])
 
     def test_respects_max_positions_cap(self):
         portfolio = tasks.get_or_create_default_portfolio()

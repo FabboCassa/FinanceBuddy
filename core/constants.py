@@ -333,6 +333,16 @@ PAPER_SENTIMENT_WINDOW_DAYS = BACKTEST_SENTIMENT_WINDOW_DAYS  # trailing window 
 PAPER_MAX_POSITIONS = 10          # diversification cap (max simultaneous holdings)
 PAPER_POSITION_FRACTION = 0.10    # target slice of total equity per new position
 PAPER_MIN_TRADE_VALUE = 50.0      # skip dust orders below this cash value
+
+# Execution costs — keep the simulation honest. A frictionless fill flatters the
+# strategy; modelling cost makes the equity curve comparable to a real account.
+#   * commission: a flat % fee charged on each side's gross trade value.
+#   * slippage:   the fill is adverse to the observed close — a BUY pays slightly
+#                 up, a SELL receives slightly less (models spread/market impact).
+# Both are deliberately modest defaults (tunable via env later) and only ever
+# make results worse, never better, so paper performance is not optimistic.
+PAPER_COMMISSION_PCT = 0.001      # 0.10% per side (broker fee / effective spread)
+PAPER_SLIPPAGE_PCT = 0.0005       # 0.05% adverse fill vs. the reference close
 # Only act on sentiment from verified, non-noise news (reuses VERIFIED_SOURCE_TIERS).
 PAPER_MIN_SENTIMENT_ARTICLES = 1  # min scored articles in the window to trust a signal
 # How far back to look for a tradable "latest close" (markets close on weekends/

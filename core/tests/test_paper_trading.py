@@ -82,18 +82,48 @@ class LatestSignalTests(SimpleTestCase):
             (None, None))
 
 
+class ExecutionPriceTests(SimpleTestCase):
+    def test_buy_pays_up(self):
+        self.assertAlmostEqual(
+            paper_trading.execution_price(100.0, 'buy', slippage_pct=0.001), 100.1)
+
+    def test_sell_receives_less(self):
+        self.assertAlmostEqual(
+            paper_trading.execution_price(100.0, 'sell', slippage_pct=0.001), 99.9)
+
+    def test_zero_slippage_is_reference(self):
+        self.assertAlmostEqual(
+            paper_trading.execution_price(100.0, 'buy', slippage_pct=0.0), 100.0)
+
+
+class CommissionTests(SimpleTestCase):
+    def test_percentage_of_gross(self):
+        self.assertAlmostEqual(
+            paper_trading.commission(1000.0, commission_pct=0.001), 1.0)
+
+    def test_zero_rate_is_free(self):
+        self.assertEqual(paper_trading.commission(1000.0, commission_pct=0.0), 0.0)
+
+
 class PositionSizeTests(SimpleTestCase):
     def test_targets_fraction_of_equity(self):
         qty = paper_trading.position_size(
             10000.0, 10000.0, 100.0, 0,
-            max_positions=10, fraction=0.10, min_trade_value=50.0)
+            max_positions=10, fraction=0.10, min_trade_value=50.0, commission_pct=0.0)
         self.assertAlmostEqual(qty, 10.0)  # 10% of 10k = 1000 / 100
 
     def test_capped_by_available_cash(self):
         qty = paper_trading.position_size(
             10000.0, 500.0, 100.0, 0,
-            max_positions=10, fraction=0.10, min_trade_value=50.0)
+            max_positions=10, fraction=0.10, min_trade_value=50.0, commission_pct=0.0)
         self.assertAlmostEqual(qty, 5.0)  # only 500 cash → 5 shares
+
+    def test_commission_reduces_quantity(self):
+        # 1% all-in fee → 1000 budget buys 1000/101 shares, never overdrawing cash.
+        qty = paper_trading.position_size(
+            10000.0, 10000.0, 100.0, 0,
+            max_positions=10, fraction=0.10, min_trade_value=50.0, commission_pct=0.01)
+        self.assertAlmostEqual(qty, 1000.0 / 101.0)
 
     def test_refused_at_max_positions(self):
         qty = paper_trading.position_size(
@@ -118,3 +148,9 @@ class ConfigSanityTests(SimpleTestCase):
 
     def test_max_positions_positive(self):
         self.assertGreater(constants.PAPER_MAX_POSITIONS, 0)
+
+    def test_costs_are_nonnegative_and_small(self):
+        self.assertGreaterEqual(constants.PAPER_COMMISSION_PCT, 0)
+        self.assertGreaterEqual(constants.PAPER_SLIPPAGE_PCT, 0)
+        self.assertLess(constants.PAPER_COMMISSION_PCT, 0.05)
+        self.assertLess(constants.PAPER_SLIPPAGE_PCT, 0.05)

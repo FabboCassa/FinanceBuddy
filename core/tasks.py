@@ -574,12 +574,18 @@ def _execute_sells(portfolio, positions, closes, sentiments):
             entry_price=pos.avg_entry_price)
         if action != 'sell':
             continue
-        proceeds = pos.quantity * price
-        realized = (price - pos.avg_entry_price) * pos.quantity
+        # Sell into an adverse fill, net the commission, and bill the same fee the
+        # original buy paid so realized P&L reflects the full round-trip cost.
+        fill = paper_trading.execution_price(price, 'sell')
+        gross = pos.quantity * fill
+        sell_fee = paper_trading.commission(gross)
+        buy_fee = paper_trading.commission(pos.quantity * pos.avg_entry_price)
+        proceeds = gross - sell_fee
+        realized = (fill - pos.avg_entry_price) * pos.quantity - sell_fee - buy_fee
         portfolio.cash += proceeds
         PaperTrade.objects.create(
             portfolio=portfolio, asset_id=pos.asset_id, side='SELL',
-            quantity=pos.quantity, price=price, value=proceeds,
+            quantity=pos.quantity, price=fill, value=gross,
             reason=reason, realized_pnl=realized)
         pos.delete()
         sold += 1
@@ -604,17 +610,20 @@ def _execute_buys(portfolio, held_symbols, closes, sentiments, total_equity):
     n_open = len(held_symbols)
     bought = 0
     for sentiment, symbol, price in candidates:
-        qty = paper_trading.position_size(total_equity, portfolio.cash, price, n_open)
+        # Size against the adverse fill so cost + commission never overdraws cash.
+        fill = paper_trading.execution_price(price, 'buy')
+        qty = paper_trading.position_size(total_equity, portfolio.cash, fill, n_open)
         if qty <= 0:
             continue
-        cost = qty * price
-        portfolio.cash -= cost
+        gross = qty * fill
+        fee = paper_trading.commission(gross)
+        portfolio.cash -= gross + fee
         Position.objects.create(
             portfolio=portfolio, asset_id=symbol,
-            quantity=qty, avg_entry_price=price)
+            quantity=qty, avg_entry_price=fill)
         PaperTrade.objects.create(
             portfolio=portfolio, asset_id=symbol, side='BUY',
-            quantity=qty, price=price, value=cost, reason='sentiment')
+            quantity=qty, price=fill, value=gross, reason='sentiment')
         n_open += 1
         bought += 1
     return bought

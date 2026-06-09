@@ -72,23 +72,42 @@ def latest_signal(latest_close, sentiment, *, holding, entry_price,
     return None, None
 
 
-def position_size(total_equity, cash, price, n_open_positions, *,
+def execution_price(reference_price, side, slippage_pct=constants.PAPER_SLIPPAGE_PCT):
+    """Adverse fill price vs. the observed close → what we actually transact at.
+
+    A ``'buy'`` pays slightly up, a ``'sell'`` receives slightly less; this models
+    the bid/ask spread and market impact a real order would suffer. Pure.
+    """
+    factor = (1 + slippage_pct) if side == 'buy' else (1 - slippage_pct)
+    return reference_price * factor
+
+
+def commission(gross_value, commission_pct=constants.PAPER_COMMISSION_PCT):
+    """Flat percentage fee on a trade's gross value (charged on each side). Pure."""
+    return abs(gross_value) * commission_pct
+
+
+def position_size(total_equity, cash, fill_price, n_open_positions, *,
                   max_positions=constants.PAPER_MAX_POSITIONS,
                   fraction=constants.PAPER_POSITION_FRACTION,
-                  min_trade_value=constants.PAPER_MIN_TRADE_VALUE):
+                  min_trade_value=constants.PAPER_MIN_TRADE_VALUE,
+                  commission_pct=constants.PAPER_COMMISSION_PCT):
     """Quantity to buy for a new position, or ``0.0`` when a buy is not warranted.
 
-    Targets ``fraction`` of total equity, capped by available cash, refused once
-    the diversification cap (``max_positions``) is reached or the spend would be
-    dust (< ``min_trade_value``). Pure sizing — never mutates state.
+    Targets ``fraction`` of total equity, capped by the cash budget, refused once
+    the diversification cap (``max_positions``) is reached or the budget would be
+    dust (< ``min_trade_value``). ``fill_price`` is the post-slippage price we
+    actually pay; the all-in cost per share includes commission so the resulting
+    quantity never overdraws cash. Pure sizing — never mutates state.
     """
-    if price is None or price <= 0:
+    if fill_price is None or fill_price <= 0:
         return 0.0
     if n_open_positions >= max_positions:
         return 0.0
 
     target_value = total_equity * fraction
-    spend = min(target_value, cash)
-    if spend < min_trade_value:
+    budget = min(target_value, cash)
+    if budget < min_trade_value:
         return 0.0
-    return spend / price
+    cost_per_share = fill_price * (1 + commission_pct)
+    return budget / cost_per_share

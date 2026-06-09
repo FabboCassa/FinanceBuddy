@@ -316,6 +316,8 @@ class PortfolioView(APIView):
         total_return_pct = ((total_value / initial - 1) * 100) if initial else 0.0
         recent = portfolio.trades.all()[:self.RECENT_TRADES]
 
+        performance = self._performance(portfolio, closes, total_value, total_return_pct)
+
         return Response({
             'name': portfolio.name,
             'initial_capital': round(initial, 2),
@@ -327,8 +329,53 @@ class PortfolioView(APIView):
             'num_positions': len(positions),
             'positions': sorted(positions, key=lambda p: p['market_value'] or 0, reverse=True),
             'recent_trades': PaperTradeSerializer(recent, many=True).data,
+            'performance': performance,
             'updated_at': portfolio.updated_at,
         })
+
+    def _performance(self, portfolio, closes, total_value, total_return_pct):
+        """Risk/return metrics for the live portfolio, shaped like a backtest's.
+
+        Reuses ``core.metrics`` so the paper run reports the same Sharpe/Sortino/
+        drawdown/win-rate as a backtest of the same strategy. The benchmark is an
+        equal-weight buy-&-hold of the names the bot has actually traded over the
+        portfolio's lifetime ("what if you'd just held these instead of timing
+        them"); ``alpha`` is the bot's edge over that. Values are ``None`` until
+        there's enough history (≥2 snapshots, ≥1 closed trade) to be meaningful.
+        """
+        from core import metrics
+
+        snapshot_values = list(
+            portfolio.snapshots.order_by('timestamp').values_list('total_value', flat=True))
+        realized_pnls = list(
+            portfolio.trades.filter(side='SELL').values_list('realized_pnl', flat=True))
+
+        risk = metrics.equity_curve_metrics(snapshot_values) or {}
+
+        first_ts = (portfolio.snapshots.order_by('timestamp')
+                    .values_list('timestamp', flat=True).first())
+        buy_hold_pct = None
+        if first_ts:
+            pairs = []
+            for symbol in portfolio.trades.values_list('asset_id', flat=True).distinct():
+                first_close = (PriceData.objects
+                               .filter(asset_id=symbol, timestamp__gte=first_ts)
+                               .order_by('timestamp').values_list('close', flat=True).first())
+                pairs.append((first_close, closes.get(symbol)))
+            buy_hold_pct = metrics.buy_hold_return_pct(pairs)
+
+        alpha_pct = (round(total_return_pct - buy_hold_pct, 2)
+                     if buy_hold_pct is not None else None)
+
+        return {
+            'sharpe_ratio': risk.get('sharpe_ratio'),
+            'sortino_ratio': risk.get('sortino_ratio'),
+            'max_drawdown_pct': risk.get('max_drawdown_pct'),
+            'win_rate_pct': metrics.win_rate(realized_pnls),
+            'num_closed_trades': sum(1 for p in realized_pnls if p is not None),
+            'buy_hold_return_pct': round(buy_hold_pct, 2) if buy_hold_pct is not None else None,
+            'alpha_pct': alpha_pct,
+        }
 
 
 class PortfolioHistoryView(APIView):

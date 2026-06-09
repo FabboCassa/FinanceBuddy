@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading virtual portfolio) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading virtual portfolio + execution costs + live performance metrics) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -60,7 +60,8 @@ FinanceBuddy/
     ├── indicators.py          # Phase 2: pure-pandas EMA/RSI/MACD compute helpers
     ├── correlation.py         # Phase 2: sentiment↔forward-return correlation (Pearson/Spearman)
     ├── alerts.py              # Phase 2: sentiment-threshold eval + multi-channel dispatch
-    ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester
+    ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester (delegates metrics → metrics.py)
+    ├── metrics.py             # Phase 3/5: shared equity-curve risk/return math (Sharpe/Sortino/drawdown/win-rate/buy-hold)
     ├── relevance.py           # Phase 4: cold-start news categorization + forward price impact
     ├── sources.py             # Phase 4: news source quality registry lookup (tier/country/language)
     ├── entities.py            # Phase 4: entity linking (NER) — attribute articles to tracked assets
@@ -268,6 +269,7 @@ analyzes the missed window, independent of Celery beat timing.
     at `/api/backtest/?asset=&buy_threshold=&sell_threshold=&stop_loss_pct=&sentiment_window_days=&initial_capital=`.
   - ✅ Metrics: total return, buy & hold benchmark + **alpha**, **Sharpe**, **Sortino**,
     **max drawdown**, win rate, trade count; full equity curve + trade log + buy/sell signals.
+    The risk/return math lives in the shared [core/metrics.py](core/metrics.py) (reused by Phase 5).
   - ✅ Dashboard "Strategy Sandbox" card: tunable rule inputs, metric tiles, equity-curve
     area chart, and BUY/SELL markers overlaid on the price candles.
   - ✅ Unit tests for the engine ([core/tests/test_backtest.py](core/tests/test_backtest.py)); 35 tests total.
@@ -348,19 +350,34 @@ analyzes the missed window, independent of Celery beat timing.
   - ✅ **Virtual paper-trading portfolio (foundation).** A local, no-risk
     portfolio running the Phase 3 sentiment strategy forward in time.
     [core/paper_trading.py](core/paper_trading.py) holds the pure engine
-    (`rolling_sentiment`, `latest_signal`, `position_size`); `run_paper_trading`
-    (beat + `startup_catch_up`) orchestrates a cycle via thin helpers in
-    [core/tasks.py](core/tasks.py): sell on sentiment reversal / stop-loss, then
-    buy the strongest fresh signals (fraction-of-equity sizing, max-positions cap,
-    verified-source news only), then snapshot the equity. Models Portfolio /
-    Position / PaperTrade / PortfolioSnapshot (migration 0006); `/api/portfolio/`
-    + `/api/portfolio/history/`; dashboard "Paper Trading" section (value, return,
-    P&L, positions, trades, equity curve). Labeled "not investment advice, no real
-    money". Pure tests ([test_paper_trading.py](core/tests/test_paper_trading.py))
-    + DB cycle tests ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py));
-    128 tests total.
+    (`rolling_sentiment`, `latest_signal`, `position_size`, `execution_price`,
+    `commission`); `run_paper_trading` (beat + `startup_catch_up`) orchestrates a
+    cycle via thin helpers in [core/tasks.py](core/tasks.py): sell on sentiment
+    reversal / stop-loss, then buy the strongest fresh signals (fraction-of-equity
+    sizing, max-positions cap, verified-source news only), then snapshot the equity.
+    Models Portfolio / Position / PaperTrade / PortfolioSnapshot (migration 0006);
+    `/api/portfolio/` + `/api/portfolio/history/`; dashboard "Paper Trading" section
+    (value, return, P&L, positions, trades, equity curve). Labeled "not investment
+    advice, no real money".
+  - ✅ **Realistic execution costs.** Every fill carries commission
+    (`PAPER_COMMISSION_PCT`) + adverse slippage (`PAPER_SLIPPAGE_PCT`) so the
+    equity curve isn't optimistic; costs only ever make results worse. Round-trip
+    `realized_pnl` nets both sides' fees.
+  - ✅ **Live performance metrics.** `PortfolioView` returns a `performance` block
+    (Sharpe, Sortino, max drawdown, win rate, equal-weight Buy & Hold benchmark of
+    the traded names, and alpha) computed from snapshots + closed trades via the
+    shared [core/metrics.py](core/metrics.py) — same math as the Phase 3 backtest,
+    so paper and backtest stay comparable. Shown as a "Performance" tile row in the
+    dashboard with plain-language tooltips.
+  - Pure tests ([test_paper_trading.py](core/tests/test_paper_trading.py) +
+    [test_metrics.py](core/tests/test_metrics.py)) + DB cycle tests
+    ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py));
+    146 tests total.
   - ⏭ Next: Alpaca paper-broker API (encrypted keys via `cryptography.fernet`),
     multi-user portfolios, Django Channels WebSocket real-time price streaming.
+    *(Note: Alpaca is optional — the internal simulation now models costs + metrics
+    on its own; the broker is only the on-ramp to live money, which carries real
+    risk and stays out of scope for now.)*
 - Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
 
 ---

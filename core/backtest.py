@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from core import constants
+from core import constants, metrics
 
 
 # -- Series builders --------------------------------------------------------
@@ -129,12 +129,12 @@ def _metrics(equity: pd.Series, closes: pd.Series, trades, initial_capital) -> d
     total_return = (final_equity / initial_capital - 1) if initial_capital else 0.0
 
     daily = equity.pct_change().dropna().to_numpy()
-    rf_daily = constants.BACKTEST_RISK_FREE_RATE / constants.BACKTEST_TRADING_DAYS_PER_YEAR
-    ann = np.sqrt(constants.BACKTEST_TRADING_DAYS_PER_YEAR)
+    rf_daily = metrics.risk_free_daily()
+    ann = metrics.annualization()
 
-    sharpe = _sharpe(daily, rf_daily, ann)
-    sortino = _sortino(daily, rf_daily, ann)
-    max_dd = _max_drawdown(equity)
+    sharpe = metrics.sharpe(daily, rf_daily, ann)
+    sortino = metrics.sortino(daily, rf_daily, ann)
+    max_dd = metrics.max_drawdown(equity)
 
     closed = [t for t in trades if t['exit_reason'] != 'open']
     wins = [t for t in closed if t['return_pct'] > 0]
@@ -156,40 +156,6 @@ def _metrics(equity: pd.Series, closes: pd.Series, trades, initial_capital) -> d
         'win_rate_pct': round(win_rate, 2) if win_rate is not None else None,
         'num_trades': len(closed),
     }
-
-
-# Daily returns below this magnitude are floating-point noise (e.g. a single
-# all-in buy makes shares*close ≈ but not exactly the cash spent), not real
-# P&L — a flat equity curve must report N/D, never a spurious ratio.
-_FLAT_EPS = 1e-9
-
-
-def _is_flat(daily) -> bool:
-    return len(daily) < 2 or np.max(np.abs(daily)) < _FLAT_EPS
-
-
-def _sharpe(daily, rf_daily, ann):
-    if _is_flat(daily) or np.std(daily, ddof=1) < _FLAT_EPS:
-        return None
-    excess = daily - rf_daily
-    return round(float(np.mean(excess) / np.std(daily, ddof=1) * ann), 4)
-
-
-def _sortino(daily, rf_daily, ann):
-    if _is_flat(daily):
-        return None
-    excess = daily - rf_daily
-    downside = excess[excess < 0]
-    if len(downside) < 2 or np.std(downside, ddof=1) < _FLAT_EPS:
-        return None
-    return round(float(np.mean(excess) / np.std(downside, ddof=1) * ann), 4)
-
-
-def _max_drawdown(equity: pd.Series):
-    """Largest peak-to-trough decline as a negative percentage."""
-    running_max = equity.cummax()
-    drawdown = (equity - running_max) / running_max
-    return round(float(drawdown.min()) * 100, 4)
 
 
 # -- Helpers ----------------------------------------------------------------

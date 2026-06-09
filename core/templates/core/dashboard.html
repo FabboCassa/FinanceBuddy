@@ -364,6 +364,48 @@
                             <div id="portfolio-equity-canvas" class="w-full" style="height: 200px;"></div>
                         </div>
 
+                        <!-- Performance metrics (same math as the Phase 3 backtest, computed live) -->
+                        <div x-show="portfolio.performance" class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">
+                            <p class="text-xs font-bold text-slate-300 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-line text-accent-amber"></i> Performance
+                                <span class="text-slate-500 font-normal">— quanto è andato bene il bot, e se ha battuto il "compra e tieni"</span>
+                            </p>
+                            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-center">
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Rendimento del bot meno quello che avresti ottenuto comprando e tenendo gli stessi titoli. Positivo = il bot ha aggiunto valore col timing.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Alpha</p>
+                                    <p class="text-sm font-bold font-outfit mt-1"
+                                       :class="(portfolio.performance.alpha_pct || 0) >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                       x-text="portfolio.performance.alpha_pct === null ? 'N/D' : ((portfolio.performance.alpha_pct >= 0 ? '+' : '') + portfolio.performance.alpha_pct.toFixed(2) + '%')"></p>
+                                </div>
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Quanto avresti guadagnato/perso comprando e tenendo (senza vendere) gli stessi titoli per lo stesso periodo. È il metro di paragone del bot.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Buy &amp; Hold</p>
+                                    <p class="text-sm font-bold font-outfit mt-1 text-slate-300"
+                                       x-text="portfolio.performance.buy_hold_return_pct === null ? 'N/D' : ((portfolio.performance.buy_hold_return_pct >= 0 ? '+' : '') + portfolio.performance.buy_hold_return_pct.toFixed(2) + '%')"></p>
+                                </div>
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Rendimento ottenuto per ogni unità di rischio (oscillazioni). Più alto è meglio; sopra 1 è buono.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Sharpe</p>
+                                    <p class="text-sm font-bold font-outfit mt-1 text-slate-300"
+                                       x-text="portfolio.performance.sharpe_ratio === null ? 'N/D' : portfolio.performance.sharpe_ratio.toFixed(2)"></p>
+                                </div>
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Come lo Sharpe, ma penalizza solo le oscillazioni in perdita. Più alto è meglio.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Sortino</p>
+                                    <p class="text-sm font-bold font-outfit mt-1 text-slate-300"
+                                       x-text="portfolio.performance.sortino_ratio === null ? 'N/D' : portfolio.performance.sortino_ratio.toFixed(2)"></p>
+                                </div>
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="La perdita massima dal picco più alto al punto più basso. Più vicino a 0 è meglio.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Max Drawdown</p>
+                                    <p class="text-sm font-bold font-outfit mt-1 text-accent-rose"
+                                       x-text="portfolio.performance.max_drawdown_pct === null ? 'N/D' : portfolio.performance.max_drawdown_pct.toFixed(2) + '%'"></p>
+                                </div>
+                                <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Percentuale di operazioni chiuse in guadagno sul totale delle operazioni chiuse.">
+                                    <p class="text-xxs text-slate-500 font-semibold uppercase tracking-wide">Win Rate</p>
+                                    <p class="text-sm font-bold font-outfit mt-1 text-slate-300"
+                                       x-text="portfolio.performance.win_rate_pct === null ? 'N/D' : portfolio.performance.win_rate_pct.toFixed(0) + '%'"></p>
+                                    <p class="text-xxs text-slate-600 mt-0.5" x-text="'su ' + portfolio.performance.num_closed_trades + ' chiuse'"></p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <!-- Open positions -->
                             <div class="bg-slate-950/70 rounded-xl border border-slate-800/80 p-3">

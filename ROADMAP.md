@@ -131,9 +131,24 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 > verificate), con snapshot di equity ad ogni ciclo. Modelli Portfolio/Position/
 > PaperTrade/PortfolioSnapshot, API `/api/portfolio/` + `/api/portfolio/history/`,
 > sezione "Paper Trading" in dashboard (valore, rendimento, P&L, posizioni,
-> operazioni, equity curve). Nessun broker, nessun rischio reale. **Prossimi
-> gradini:** API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`),
-> multi-utente, streaming real-time via WebSocket (Django Channels). Vedi
+> operazioni, equity curve). Nessun broker, nessun rischio reale.
+>
+> Aggiunti poi due affinamenti **interni** (niente broker): **(a) costi di
+> esecuzione realistici** — commissione (`PAPER_COMMISSION_PCT`) + slippage
+> avverso (`PAPER_SLIPPAGE_PCT`) su ogni fill, così la equity curve non è
+> ottimistica e il P&L round-trip è al netto delle commissioni; **(b) metriche di
+> performance dal vivo** — Sharpe, Sortino, max drawdown, win rate, benchmark
+> Buy & Hold equipesato sui titoli effettivamente tradati e **alpha**, calcolate
+> dagli snapshot + operazioni chiuse riusando [core/metrics.py](core/metrics.py)
+> (stessa matematica del backtester di Fase 3 → paper e backtest restano
+> confrontabili), mostrate come riga "Performance" in dashboard con tooltip in
+> linguaggio semplice.
+>
+> **Decisione:** Alpaca **non** è necessaria per la simulazione — costi e metriche
+> sono ora modellati internamente; il broker resta solo la rampa verso i soldi
+> *veri* (rischio reale), fuori scope per ora. **Prossimi gradini (opzionali):**
+> API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`), multi-utente,
+> streaming real-time via WebSocket (Django Channels). Vedi
 > [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
 
 * **Funzionalità:**
