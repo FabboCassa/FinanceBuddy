@@ -4,7 +4,8 @@ from rest_framework.routers import DefaultRouter
 from core.views import (
     AssetViewSet, PriceDataViewSet, NewsArticleViewSet, AlertViewSet,
     IndicatorsView, CorrelationView, BacktestView, RankingView,
-    PortfolioView, PortfolioHistoryView, DashboardView,
+    MarketSummaryView, PortfolioView, PortfolioHistoryView, DashboardView,
+    WikiView,
 )
 
 router = DefaultRouter()
@@ -19,8 +20,10 @@ urlpatterns = [
     path('api/correlation/', CorrelationView.as_view(), name='correlation'),
     path('api/backtest/', BacktestView.as_view(), name='backtest'),
     path('api/ranking/', RankingView.as_view(), name='ranking'),
+    path('api/summary/', MarketSummaryView.as_view(), name='summary'),
     path('api/portfolio/', PortfolioView.as_view(), name='portfolio'),
     path('api/portfolio/history/', PortfolioHistoryView.as_view(), name='portfolio-history'),
     path('api/', include(router.urls)),
+    path('wiki/', WikiView.as_view(), name='wiki'),
     path('', DashboardView.as_view(), name='dashboard'),
 ]

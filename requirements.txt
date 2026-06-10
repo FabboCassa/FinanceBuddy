@@ -3,7 +3,9 @@ djangorestframework>=3.14.0
 django-filter>=23.5
 psycopg2-binary>=2.9.9
 celery>=5.3.6
-redis>=5.0.1
+# <6: redis-py >=6 (qui era installato 8.0.0) applica un read-timeout socket ai comandi
+# bloccanti (BZPOPMIN) usati da channels-redis -> TimeoutError ogni 5s sui WebSocket.
+redis>=5.0.1,<6
 yfinance>=0.2.38
 feedparser>=6.0.11
 pandas>=2.2.0

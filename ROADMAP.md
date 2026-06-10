@@ -118,7 +118,12 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 
 ---
 
-## 💸 Fase 5: Paper & Live Trading Automatizzato (Lungo Termine) 🚧 *(in corso)*
+### 🏠 Home "Panoramica" (vista d'apertura) ✅ *(implementata)*
+All'apertura la dashboard **non seleziona più il primo asset**: mostra una **home/overview** con i dati più importanti a colpo d'occhio — card di sintesi mercato (sentiment medio 7g, news 24h, alert 7g, asset monitorati con il top score), gli **ultimi alert** su tutti i titoli (click → apre l'asset), la leaderboard **Top Opportunità** e la sezione **Paper Trading**. Il dettaglio asset (grafico, correlazioni, news, sandbox) si apre solo al click su un titolo, con pulsante "indietro" (e logo in sidebar) per tornare alla panoramica. Dati di sintesi dal nuovo endpoint `/api/summary/` (finestre in `constants.py`: `SUMMARY_NEWS_HOURS`, `SUMMARY_WINDOW_DAYS`); il resto riusa gli endpoint esistenti.
+
+---
+
+## 💸 Fase 5: Paper & Live Trading Automatizzato (Lungo Termine) ✅ *(Completata — broker/multi-utente rimandati)*
 **Obiettivo:** Trasformare la piattaforma in un Trading Bot completo ed autonomo, capace di eseguire operazioni finanziarie reali o simulate.
 
 > **Stato:** avviata dal **portafoglio virtuale (paper trading)** — la base. Un bot
@@ -155,16 +160,20 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 > broadcaster è [core/realtime.py](core/realtime.py). Fallback automatico a polling
 > 60s + riconnessione se il socket cade.
 >
-> **Decisione:** Alpaca **non** è necessaria per la simulazione — costi e metriche
-> sono ora modellati internamente; il broker resta solo la rampa verso i soldi
-> *veri* (rischio reale), fuori scope per ora. **Prossimi gradini (opzionali):**
-> API broker Alpaca (paper, chiavi cifrate con `cryptography.fernet`) e multi-utente.
+> **Decisione (chiusura fase, 2026-06-10):** la fase è **completata** per tutto ciò
+> che è in scope (simulazione completa: paper trading, costi di esecuzione realistici,
+> metriche live, streaming WebSocket). Alpaca **non** è necessaria per la simulazione —
+> costi e metriche sono modellati internamente; il broker è solo la rampa verso i soldi
+> *veri* (rischio reale) e lo stack gira on-demand/intermittente, incompatibile con un
+> bot collegato a un broker live. Il **multi-utente** ha senso solo insieme alle chiavi
+> broker per più persone (piattaforma self-hosted a utente singolo → YAGNI). Entrambi
+> ⏭ **rimandati**: da riprendere solo se/quando si deciderà di passare al denaro reale.
 > Vedi [ARCHITECTURE.md §8](ARCHITECTURE.md#8-phase-status-vs-roadmapmd).
 
 * **Funzionalità:**
   * **Paper Trading Dashboard:** ✅ *implementato.* Un portafoglio virtuale per simulare in tempo reale le performance del bot con denaro virtuale, calcolando profitti e perdite storiche.
-  * **Connessione API Broker:** Integrazione con broker online e piattaforme di scambio per inviare ordini di acquisto/vendita in automatico quando scattano i segnali di trading della Fase 3.
-  * **Dashboard Multi-Utente:** Supporto multi-account con crittografia forte delle chiavi API personali dei broker.
+  * **Connessione API Broker:** ⏭ *rimandata (fuori scope).* Integrazione con broker online per ordini automatici — è la rampa verso il denaro reale; da riprendere solo se si deciderà di andare live.
+  * **Dashboard Multi-Utente:** ⏭ *rimandata (YAGNI).* Multi-account con crittografia delle chiavi broker — ha senso solo insieme al broker reale.
   * **Streaming Real-Time:** ✅ *implementato.* La dashboard riceve gli aggiornamenti del portafoglio in tempo reale via WebSocket (Django Channels), sostituendo il polling; resta un fallback a polling se il socket cade.
 * **Tecnologie:**
   * **Broker API:** Alpaca Trade API (gratuita per il paper trading), `ib_insync` (per Interactive Brokers), CCXT (per Exchange di Criptovalute).
@@ -173,8 +182,20 @@ Con ~500 titoli serviva un modo per vedere subito i "migliori adesso" senza scor
 
 ---
 
-## 📚 Fase 6: Knowledge Base / Wiki Didattica (Fase Finale)
+## 📚 Fase 6: Knowledge Base / Wiki Didattica (Fase Finale) ✅ *(Implementata)*
 **Obiettivo:** Rendere la piattaforma **comprensibile a chi non sa nulla di trading**. Una sezione "Wiki" integrata nell'app che spiega — in linguaggio semplice, con esempi concreti e le formule matematiche — **ogni concetto** usato altrove nella dashboard, così che l'utente abbia sempre a portata di click la definizione di ciò che sta guardando.
+
+> **Stato (2026-06-10): implementata.** Pagina statica `/wiki/` (template
+> [core/templates/core/wiki.html](core/templates/core/wiki.html), `WikiView`) con lo
+> stesso design system della dashboard: 7 sezioni tematiche + glossario alfabetico,
+> ~40 voci tutte con la struttura ripetuta *(definizione → spiegazione semplice →
+> esempio numerico → formula KaTeX → "dove lo vedi nell'app")*, bilingue IT/EN.
+> Sidebar con indice attivo allo scroll, ricerca testuale live, ancore deep-linkabili
+> (es. `/wiki/#sharpe`). La dashboard espone icone ℹ︎ contestuali (Top Opportunità,
+> Paper Trading, Equity Curve, Performance, grafico/EMA, RSI, MACD, matrice di
+> correlazione, Strategy Sandbox) + pulsante Wiki in sidebar. Smoke test in
+> [core/tests/test_wiki.py](core/tests/test_wiki.py) vincolano rotta, template e
+> ancore usate dai deep-link.
 
 * **Principi di progettazione (UX):**
   * **Navigabile, non una lista infinita:** contenuti organizzati in **sezioni tematiche affini** (paragrafi), con indice/sommario laterale (sidebar), ancore per ogni voce e ricerca testuale. Niente muro di termini in ordine sparso.

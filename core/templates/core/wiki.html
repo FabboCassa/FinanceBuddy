@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="it" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wiki — Trading & Sentiment AI</title>
+
+    <!-- Google Fonts: Outfit (headings) + Inter (UI text) — same design system as the dashboard -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js (via CDN) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- KaTeX (lightweight math rendering) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"
+            onload="renderMathInElement(document.body, {delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '\\(', right: '\\)', display: false}
+            ]});"></script>
+
+    <!-- Same custom palette as dashboard.html -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        outfit: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1',
+                            600: '#4f46e5', 700: '#4338ca', 950: '#090d16',
+                        },
+                        accent: {
+                            emerald: '#10b981', rose: '#f43f5e',
+                            amber: '#f59e0b', violet: '#a78bfa',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #030712;
+            background-image:
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(244, 63, 94, 0.05) 0px, transparent 50%);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.4);
+        }
+        .glass-sidebar {
+            background: rgba(9, 13, 22, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.4); }
+
+        /* Repeated structure of every wiki entry */
+        .wlabel {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #818cf8; margin-bottom: 0.25rem;
+        }
+        .wentry p { color: #cbd5e1; font-size: 0.875rem; line-height: 1.6; }
+        .wexample {
+            background: rgba(2, 6, 23, 0.6); border: 1px solid rgba(51, 65, 85, 0.5);
+            border-radius: 0.6rem; padding: 0.75rem 1rem; font-size: 0.8rem;
+            color: #94a3b8; line-height: 1.6;
+        }
+        .wformula { overflow-x: auto; padding: 0.25rem 0; color: #e2e8f0; }
+        .wapp {
+            font-size: 0.8rem; color: #94a3b8;
+            border-left: 2px solid rgba(99, 102, 241, 0.5); padding-left: 0.75rem;
+        }
+        .katex { font-size: 1.05em; }
+        section[id], article[id] { scroll-margin-top: 6rem; }
+    </style>
+</head>
+<body class="h-full overflow-hidden" x-data="wikiApp()">
+
+    <div class="flex h-full overflow-hidden">
+
+        <!-- ================= SIDEBAR: INDEX + SEARCH ================= -->
+        <aside class="w-80 glass-sidebar flex-col z-20 flex-shrink-0 hidden md:flex">
+            <div class="p-6 border-b border-slate-800 flex items-center space-x-3">
+                <a href="/" title="Torna alla dashboard"
+                   class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/25">
+                    <i class="fa-solid fa-book-open text-white text-lg"></i>
+                </a>
+                <div>
+                    <h1 class="text-xl font-bold font-outfit tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">Wiki</h1>
+                    <span class="text-xs font-semibold uppercase tracking-wider text-brand-500">Impara i concetti</span>
+                </div>
+            </div>
+
+            <!-- Search -->
+            <div class="p-4 border-b border-slate-800 bg-slate-950/40">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                    <input type="text" x-model="q" placeholder="Cerca un termine (es. Sharpe, RSI)…"
+                           class="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition-colors">
+                    <button x-show="q" @click="q=''" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                        <i class="fa-solid fa-circle-xmark text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section index -->
+            <nav class="flex-1 overflow-y-auto p-4 space-y-1">
+                <template x-for="s in sections" :key="s.id">
+                    <a :href="'#' + s.id" @click.prevent="goTo(s.id)"
+                       class="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors"
+                       :class="active === s.id ? 'bg-brand-600/20 text-white border border-brand-500/30' : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent'">
+                        <i :class="s.icon" class="w-4 text-center text-brand-500"></i>
+                        <span x-text="s.title"></span>
+                    </a>
+                </template>
+            </nav>
+
+            <div class="p-4 border-t border-slate-800">
+                <a href="/" class="flex items-center justify-center space-x-2 w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 transition-colors">
+                    <i class="fa-solid fa-arrow-left"></i><span>Torna alla dashboard</span>
+                </a>
+            </div>
+        </aside>
+
+        <!-- ================= MAIN CONTENT ================= -->
+        <main id="wiki-scroll" class="flex-1 overflow-y-auto" @scroll.passive="onScroll()">
+            <div class="max-w-4xl mx-auto px-6 py-10">
+
+                <!-- Header -->
+                <header class="mb-8">
+                    <h1 class="text-3xl font-bold font-outfit tracking-tight text-white mb-2">
+                        <i class="fa-solid fa-book-open text-brand-500 mr-2"></i>Knowledge Base
+                    </h1>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Ogni concetto usato nella dashboard, spiegato da zero: una definizione in una frase,
+                        una spiegazione semplice, un esempio numerico, la formula e dove lo trovi nell'app.
+                        Il termine inglese standard è sempre indicato accanto a quello italiano.
+                    </p>
+                    <div class="mt-4 glass-panel rounded-xl px-4 py-3 text-xs text-amber-300/90 flex items-start space-x-2">
+                        <i class="fa-solid fa-triangle-exclamation mt-0.5"></i>
+                        <span>Contenuto puramente didattico: niente in questa app è un consiglio d'investimento.
+                        I rendimenti passati non garantiscono quelli futuri.</span>
+                    </div>
+                </header>
+
+                <!-- No-results notice -->
+                <div x-show="q && !anyVisible" x-cloak class="glass-panel rounded-xl p-6 text-center text-sm text-slate-400">
+                    Nessuna voce trovata per «<span class="text-white" x-text="q"></span>».
+                </div>
+
+                <!-- ====== 1 · CONCETTI DI BASE ====== -->
+                <section id="sec-basi" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-coins text-brand-500 mr-2"></i>1 · Concetti di base dei mercati</h2>
+                    <p class="text-xs text-slate-500 mb-4">Il minimo indispensabile per leggere un grafico di borsa.</p>
+
+                    <article id="prezzo" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="prezzo quotazione price quote">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Prezzo / Quotazione — <em class="text-slate-400 font-normal">Price</em> <a href="#prezzo" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il prezzo è quanto costa <em>adesso</em> una quota (azione) di un'azienda sul mercato.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È come il cartellino del prezzo al supermercato, ma cambia di continuo: ogni volta che qualcuno compra o vende, l'ultimo scambio fissa il nuovo prezzo. Se più persone vogliono comprare che vendere, il prezzo sale; viceversa scende.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Alle 15:00 un'azione Apple (AAPL) scambia a 210,50 USD. Alle 15:01 un grosso ordine di acquisto la porta a 210,80 USD: quello è il nuovo prezzo.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dashboard → grafico «Storico Prezzi»: ogni punto/candela è il prezzo in un momento del tempo (chiusura giornaliera).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="candela-ohlcv" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="candela ohlcv candlestick open high low close apertura chiusura massimo minimo">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Candela OHLCV — <em class="text-slate-400 font-normal">Candlestick</em> <a href="#candela-ohlcv" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Una candela riassume il prezzo in un intervallo di tempo con 4 valori: apertura (<em>Open</em>), massimo (<em>High</em>), minimo (<em>Low</em>), chiusura (<em>Close</em>) — più il volume (V).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Immagina di fotografare una giornata di borsa: a che prezzo è partita, il punto più alto e più basso che ha toccato, e dove è finita. Il "corpo" della candela va da apertura a chiusura; le "ombre" (gli stoppini) mostrano massimo e minimo. Verde = ha chiuso più su di dove ha aperto; rossa = più giù.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">AAPL lunedì: Open 208, High 212, Low 207, Close 211 → candela <span class="text-accent-emerald">verde</span> con corpo da 208 a 211 e ombre fino a 212 e 207.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dashboard → grafico «Storico Prezzi»: ogni candela è un giorno di mercato.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="volume" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="volume scambi quantità">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Volume — <em class="text-slate-400 font-normal">Volume</em> <a href="#volume" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il numero di quote scambiate (comprate e vendute) in un intervallo di tempo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È il "traffico" su quel titolo. Un movimento di prezzo con tanto volume è come una decisione presa da una folla: più significativo. Lo stesso movimento con poco volume può essere solo rumore.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Se oggi passano di mano 80 milioni di azioni AAPL contro una media di 50, il +2% di oggi "pesa" di più di un +2% fatto con 10 milioni di scambi.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">È la "V" dei dati OHLCV salvati per ogni candela (modello PriceData).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="rendimento" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="rendimento percentuale return variazione">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Rendimento % — <em class="text-slate-400 font-normal">Return</em> <a href="#rendimento" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La variazione percentuale di un prezzo (o del valore di un portafoglio) tra due momenti.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Risponde a: "quanto avrei guadagnato (o perso), in proporzione, se avessi comprato allora e venduto adesso?". Si usa la percentuale così puoi confrontare titoli con prezzi diversissimi.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Compri a 200, ora vale 210 → (210 − 200) / 200 = 0,05 = <span class="text-accent-emerald">+5%</span>. Da 200 a 190 → <span class="text-accent-rose">−5%</span>.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ r = \frac{P_{\text{fine}} - P_{\text{inizio}}}{P_{\text{inizio}}} \times 100\% $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Ovunque: nel riquadro Paper Trading («Rendimento»), nelle metriche del backtest e nell'impatto forward delle notizie.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="long-short" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="long short rialzo ribasso posizione">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Long / Short — <em class="text-slate-400 font-normal">Long / Short position</em> <a href="#long-short" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Essere <strong>long</strong> = possedere un titolo puntando al rialzo. Essere <strong>short</strong> = venderlo allo scoperto puntando al ribasso.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Long è il modo "normale" di investire: compri, speri salga, rivendi. Short è il contrario: prendi in prestito il titolo, lo vendi subito e speri di ricomprarlo più tardi a meno — guadagni se il prezzo scende (ma le perdite potenziali sono illimitate).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Long: compri a 100, vendi a 110 → +10%. Short: vendi a 100, ricompri a 90 → +10%; ma se sale a 120 perdi −20%.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">La strategia del backtester e del paper trading è <strong>solo long</strong>: compra sul sentiment forte, vende per uscire. Niente vendite allo scoperto.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="asset-etf" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="asset etf azione stock fondo indice ticker simbolo">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Asset, Azione, ETF — <em class="text-slate-400 font-normal">Asset / Stock / ETF</em> <a href="#asset-etf" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un <strong>asset</strong> è qualunque cosa quotata che si possa comprare. Un'<strong>azione</strong> è una quota di una singola azienda; un <strong>ETF</strong> è un paniere di tante azioni comprabile come un titolo unico.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Un'azione è come una fetta di una sola torta (es. Apple). Un ETF è un vassoio con una fettina di 500 torte diverse: con un solo acquisto sei "un po' ovunque", quindi il rischio del singolo fallimento pesa meno. Ogni asset ha un codice breve detto <em>ticker</em> (AAPL, MSFT, SPY…).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">AAPL = azione Apple. SPY = ETF che replica l'indice S&P 500 (le ~500 maggiori aziende USA).</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Sidebar → lista asset (tipo «Stock» o «ETF»). L'universo tracciato è la top ~500 mondiale per capitalizzazione.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="timeframe" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="timeframe orizzonte intervallo giornaliero daily finestra">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Timeframe / Finestra temporale — <em class="text-slate-400 font-normal">Timeframe</em> <a href="#timeframe" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>L'intervallo di tempo rappresentato da ogni candela o usato per un calcolo (1 minuto, 1 ora, 1 giorno…).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È lo "zoom" con cui guardi il mercato. Stessa storia, lenti diverse: su candele da 1 minuto vedi il battito cardiaco, su candele giornaliere vedi la tendenza. Una "finestra mobile di 3 giorni" significa: per ogni giorno, guarda solo gli ultimi 3 giorni di dati.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">«Sentiment medio a 3 giorni» di mercoledì = media dei punteggi delle notizie di lunedì, martedì e mercoledì. Giovedì la finestra "scivola" avanti di un giorno.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Le candele del grafico sono giornaliere; la Strategy Sandbox ha il parametro «finestra sentiment (giorni)».</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 2 · ANALISI DEL SENTIMENT ====== -->
+                <section id="sec-sentiment" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-comments text-brand-500 mr-2"></i>2 · Analisi del sentiment</h2>
+                    <p class="text-xs text-slate-500 mb-4">Come l'app trasforma le notizie in numeri.</p>
+
+                    <article id="sentiment" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="sentiment umore notizie positivo negativo neutrale">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Sentiment — <em class="text-slate-400 font-normal">Sentiment</em> <a href="#sentiment" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>L'"umore" complessivo che emerge dalle notizie su un'azienda: ottimista (positivo), pessimista (negativo) o neutro.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Se per una settimana tutti i giornali dicono cose ottime su un'azienda, l'aria che si respira è positiva — e a volte i prezzi seguono l'umore. L'app legge le notizie al posto tuo e misura quell'aria con un numero.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">«Utili record, supera ogni attesa» → positivo. «Indagine antitrust sull'azienda» → negativo. «L'azienda terrà l'assemblea il 12 maggio» → neutrale.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Etichette colorate sulle notizie, marker sul grafico, media nella card di panoramica e negli alert.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="nlp" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="nlp natural language processing elaborazione linguaggio naturale ai intelligenza artificiale zero-shot">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">NLP — <em class="text-slate-400 font-normal">Natural Language Processing</em> <a href="#nlp" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La branca dell'intelligenza artificiale che insegna ai computer a capire il linguaggio umano scritto.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Un computer non "legge" come noi: l'NLP trasforma le parole in numeri e impara, da milioni di esempi, quali combinazioni di parole esprimono entusiasmo, paura, o un certo argomento. È quello che permette all'app di dire "questa notizia è negativa" o "questa parla di utili".</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dietro le quinte: punteggio di sentiment (FinBERT), categoria tematica delle notizie (classificatore zero-shot o parole chiave).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="finbert" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="finbert bert modello transformers huggingface">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">FinBERT — <em class="text-slate-400 font-normal">FinBERT model</em> <a href="#finbert" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un modello di intelligenza artificiale (basato su BERT) addestrato apposta su testi <em>finanziari</em> per classificarne il sentiment.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È come un analista che ha letto milioni di articoli di finanza: sa che "beats expectations" è una buona notizia e che "profit warning" è pessima, anche quando il tono sembra neutro. Per ogni titolo di notizia restituisce tre probabilità: positivo, neutro, negativo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">«Apple beats quarterly expectations» → positivo 0,92 / neutro 0,06 / negativo 0,02 → score ≈ +0,90.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">È il motore che assegna punteggio ed etichetta a ogni notizia ingerita (gira in locale, su CPU).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="sentiment-score" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="score punteggio etichetta label positivo negativo neutrale scala">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Score di sentiment (−1…+1) ed etichette — <em class="text-slate-400 font-normal">Sentiment score & label</em> <a href="#sentiment-score" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Ogni notizia riceve un numero da −1 (pessima) a +1 (ottima) e un'etichetta: Positivo, Neutrale o Negativo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È un termometro dell'umore: −1 è gelo totale, 0 è indifferenza, +1 è euforia. Avere un numero (e non solo un'etichetta) permette di fare medie nel tempo e confronti tra titoli.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Tre notizie di oggi su AAPL: +0,8, +0,4, −0,3 → sentiment medio del giorno = (0,8 + 0,4 − 0,3) / 3 ≈ <span class="text-accent-emerald">+0,30</span>.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{score} = p(\text{positivo}) - p(\text{negativo}) \;\in\; [-1, +1] $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Badge colorati nel feed notizie, marker sul grafico, soglie di acquisto/vendita nella Strategy Sandbox.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="keyword-fallback" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="fallback parole chiave keywords degradazione">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Fallback a parole chiave — <em class="text-slate-400 font-normal">Keyword fallback</em> <a href="#keyword-fallback" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il piano B: se il modello AI non è disponibile o fallisce, il sentiment viene stimato cercando parole chiave note nel titolo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Se l'analista esperto (FinBERT) è assente, un assistente conta le parole "buone" (record, crescita, beat…) e quelle "cattive" (crollo, indagine, taglio…). Meno fine, ma il sistema non si ferma mai.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Trasparente per te: stesso score ed etichette. Vale anche per la categoria tematica (lo zero-shot NLI ha lo stesso fallback).</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 3 · ANALISI TECNICA ====== -->
+                <section id="sec-tecnica" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-wave-square text-brand-500 mr-2"></i>3 · Analisi tecnica (indicatori)</h2>
+                    <p class="text-xs text-slate-500 mb-4">Numeri calcolati solo dai prezzi passati, per leggere tendenza e "temperatura" del titolo.</p>
+
+                    <article id="ema" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="ema media mobile esponenziale exponential moving average 20 50 200 trend tendenza">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Media Mobile Esponenziale (EMA 20/50/200) — <em class="text-slate-400 font-normal">Exponential Moving Average</em> <a href="#ema" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Una media dei prezzi recenti che dà più peso ai giorni più vicini, disegnata come linea "morbida" sopra le candele.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Il prezzo giorno per giorno è nervoso e pieno di zigzag; la EMA lo "liscia" per far emergere la direzione di fondo. Il numero (20, 50, 200) dice quanti giorni guarda: EMA 20 = tendenza recente, EMA 200 = tendenza di lungo periodo. Prezzo sopra la EMA 200 → fase tendenzialmente rialzista; sotto → ribassista.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">EMA 20 di ieri = 100; prezzo di oggi = 110. α = 2/(20+1) ≈ 0,095 → EMA oggi = 0,095·110 + 0,905·100 ≈ <strong>100,95</strong>: si sposta verso 110, ma senza strappi.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{EMA}_t = \alpha \cdot P_t + (1-\alpha)\cdot \text{EMA}_{t-1}, \qquad \alpha = \tfrac{2}{N+1} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dashboard → grafico prezzi: le tre linee EMA 20/50/200 attivabili con i chip sopra il grafico. Entra anche nel punteggio «Top Opportunità».</p></div>
+                        </div>
+                    </article>
+
+                    <article id="rsi" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="rsi relative strength index ipercomprato ipervenduto oscillatore 14 70 30">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">RSI (14) — <em class="text-slate-400 font-normal">Relative Strength Index</em> <a href="#rsi" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un oscillatore da 0 a 100 che misura quanto le salite recenti hanno dominato sulle discese (di solito sugli ultimi 14 giorni).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È la "temperatura" del titolo. Sopra 70 = <strong>ipercomprato</strong>: è salito tanto e in fretta, potrebbe essere caro e prendersi una pausa. Sotto 30 = <strong>ipervenduto</strong>: è stato venduto tanto, potrebbe rimbalzare. In mezzo: niente di estremo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Negli ultimi 14 giorni i rialzi medi valgono 2 e i ribassi medi 1 → RS = 2/1 = 2 → RSI = 100 − 100/(1+2) ≈ <strong>67</strong>: forte ma non ancora ipercomprato.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{RSI} = 100 - \frac{100}{1 + RS}, \qquad RS = \frac{\text{media guadagni } N \text{ gg}}{\text{media perdite } N \text{ gg}} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dashboard → pannello «RSI (14)» sotto il grafico prezzi (linee guida a 70 e 30). Entra anche nella componente "tecnico" del ranking.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="macd" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="macd moving average convergence divergence segnale istogramma incrocio momentum 12 26 9">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">MACD (12, 26, 9) — <em class="text-slate-400 font-normal">Moving Average Convergence Divergence</em> <a href="#macd" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La differenza tra due EMA (12 e 26 giorni), più una sua media a 9 giorni detta «linea segnale» e un istogramma con la distanza tra le due.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Confronta la spinta recente (EMA 12) con quella di fondo (EMA 26). Se la linea MACD incrocia <em>verso l'alto</em> la linea segnale, lo slancio sta accelerando (segnale rialzista); incrocio verso il basso = sta rallentando. L'istogramma rende l'incrocio visibile a colpo d'occhio: barre che crescono = spinta in aumento.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">EMA12 = 105, EMA26 = 103 → MACD = +2. Linea segnale = +1,5 → istogramma = +0,5: slancio positivo e in crescita.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{MACD} = \text{EMA}_{12} - \text{EMA}_{26}, \quad \text{Segnale} = \text{EMA}_9(\text{MACD}), \quad \text{Istogramma} = \text{MACD} - \text{Segnale} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dashboard → pannello «MACD (12, 26, 9)» sotto il grafico. L'incrocio MACD/segnale entra nella componente "tecnico" del ranking.</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 4 · STATISTICA & CORRELAZIONE ====== -->
+                <section id="sec-statistica" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-chart-scatter text-brand-500 mr-2"></i>4 · Statistica & correlazione</h2>
+                    <p class="text-xs text-slate-500 mb-4">Gli strumenti per misurare se il sentiment anticipa davvero i prezzi.</p>
+
+                    <article id="correlazione" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="correlazione pearson coefficiente lineare matrice">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Correlazione di Pearson — <em class="text-slate-400 font-normal">Pearson correlation</em> <a href="#correlazione" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un numero tra −1 e +1 che misura quanto due grandezze si muovono insieme in modo lineare.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>+1 = ballano perfettamente a tempo (una sale, l'altra sale); −1 = perfettamente all'opposto; 0 = ognuna per conto suo. Qui le due grandezze sono il sentiment delle notizie e il rendimento del prezzo nei giorni successivi: se la correlazione è alta, il sentiment "anticipa" qualcosa.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Correlazione sentiment → rendimento a 3 giorni = <strong>+0,45</strong>: quando il sentiment è alto, nei 3 giorni dopo il prezzo tende (non sempre!) a salire. Un valore ≈ 0 dice che il sentiment non sta predicendo nulla.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ r = \frac{\sum_i (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_i (x_i - \bar{x})^2}\;\sqrt{\sum_i (y_i - \bar{y})^2}} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dettaglio asset → card «Matrice di Correlazione», righe Pearson a 1/3/7 giorni.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="spearman" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="spearman rango rank correlazione monotona">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Correlazione di Spearman — <em class="text-slate-400 font-normal">Spearman rank correlation</em> <a href="#spearman" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Come Pearson, ma calcolata sui <em>ranghi</em> (le posizioni in classifica) invece che sui valori: misura ogni relazione che cresce o decresce, anche non in linea retta.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Invece di chiedere "di quanto sale y quando sale x?", chiede solo "quando x è tra i più alti, anche y lo è?". Essendo basata sulle classifiche, non si fa ingannare da valori estremi (outlier): un singolo giorno pazzo pesa quanto gli altri.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">5 giorni di dati: il giorno con il sentiment più alto è anche il 1° per rendimento, il 2° è 2°, ecc. → Spearman = +1 anche se i numeri non crescono in modo proporzionale.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \rho = 1 - \frac{6 \sum_i d_i^2}{n(n^2-1)}, \qquad d_i = \text{rango}(x_i) - \text{rango}(y_i) $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dettaglio asset → card «Matrice di Correlazione», righe Spearman, accanto a Pearson per confronto.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="forward-return" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="forward return rendimento futuro impatto 1 3 7 giorni forward impact">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Rendimento forward (1/3/7 gg) — <em class="text-slate-400 font-normal">Forward return</em> <a href="#forward-return" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il rendimento del prezzo calcolato <em>in avanti</em>: da un certo momento (es. l'uscita di una notizia) a 1, 3 o 7 giorni dopo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Risponde a: "dopo questa notizia, il prezzo cos'ha fatto davvero?". È il modo onesto di valutare se una notizia "muove il mercato": si guarda solo cosa è successo <em>dopo</em>, mai prima. È anche il segnale con cui il sistema imparerà da solo quali notizie contano (Fase 4).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Notizia pubblicata con prezzo a 100. Dopo 1 giorno: 101 (+1%), dopo 3: 104 (+4%), dopo 7: 103 (+3%) → impatto forward = {1: +1%, 3: +4%, 7: +3%}.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ FR_k = \frac{P_{t+k} - P_t}{P_t}, \qquad k \in \{1, 3, 7\} \text{ giorni} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Nel drawer di ogni notizia («impatto») e, in forma aggregata, nella Matrice di Correlazione.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="campione-minimo" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="campione minimo sample size n significatività dati pochi">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Campione minimo — <em class="text-slate-400 font-normal">Minimum sample size</em> <a href="#campione-minimo" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il numero minimo di osservazioni necessario perché una statistica (es. una correlazione) sia credibile e non frutto del caso.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Se lanci una moneta 4 volte ed esce 3 volte testa, non concludi che la moneta è truccata: troppi pochi lanci. Lo stesso vale qui: una correlazione calcolata su 5 notizie può essere puro caso; su 200 inizia a dire qualcosa.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Correlazione +0,9 con n = 5 coppie → quasi sicuramente rumore. Correlazione +0,3 con n = 300 → debole ma molto più affidabile.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">La Matrice di Correlazione mostra «n» (le coppie usate) e resta vuota finché non c'è abbastanza storico — è una protezione, non un difetto.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="causa-effetto" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="causa effetto causalità correlation causation spuria">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Correlazione ≠ causalità — <em class="text-slate-400 font-normal">Correlation is not causation</em> <a href="#causa-effetto" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Due cose che si muovono insieme non per forza si <em>causano</em>: può esserci una terza causa comune, o pura coincidenza.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>D'estate aumentano sia i gelati venduti sia le scottature: i gelati non causano le scottature, è il sole (causa comune). Allo stesso modo, sentiment e prezzi potrebbero salire entrambi per un evento esterno: la correlazione da sola non dimostra che le notizie "muovono" il prezzo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tienilo a mente davanti alla Matrice di Correlazione e al ranking: sono indizi, non prove. Per questo l'app non dà consigli d'acquisto.</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 5 · STRATEGIA & BACKTESTING ====== -->
+                <section id="sec-strategia" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-flask-vial text-accent-violet mr-2"></i>5 · Strategia & backtesting</h2>
+                    <p class="text-xs text-slate-500 mb-4">Come si definiscono regole di trading e come si testano onestamente sul passato.</p>
+
+                    <article id="strategia" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="strategia trading regole sistema strategy">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Strategia di trading — <em class="text-slate-400 font-normal">Trading strategy</em> <a href="#strategia" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un insieme di regole precise e ripetibili che dicono quando comprare, quando vendere e quanto investire — senza decisioni "a sensazione".</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È una ricetta: se segui sempre gli stessi passi puoi misurare se la ricetta funziona. Se ogni volta improvvisi, non saprai mai se hai guadagnato per bravura o per fortuna. Una regola scritta si può anche testare sul passato (backtest) e far eseguire a un computer.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">«Compra quando il sentiment medio a 3 giorni supera +0,5; vendi quando scende sotto +0,1 oppure se perdo più del 3% (stop-loss).» — è esattamente la strategia base dell'app.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Strategy Sandbox (la testi sul passato) e Paper Trading (la stessa strategia eseguita "in avanti" con denaro finto).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="regole-entrata-uscita" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="entrata uscita entry exit soglia threshold buy sell segnale">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Regole di entrata / uscita — <em class="text-slate-400 font-normal">Entry / Exit rules</em> <a href="#regole-entrata-uscita" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La condizione che fa scattare l'acquisto (entrata) e quella che fa scattare la vendita (uscita), espresse come soglie misurabili.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Sono i "semafori" della strategia: verde quando il segnale (qui: il sentiment medio mobile) supera la soglia di acquisto, rosso quando scende sotto la soglia di vendita. Le due soglie sono diverse apposta (isteresi): evita di comprare e vendere in continuazione quando il segnale balla intorno a un solo valore.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Soglia buy +0,5 / soglia sell +0,1. Sentiment: 0,3 → fermo; 0,6 → <span class="text-accent-emerald">compro</span>; 0,4 → resto dentro; 0,05 → <span class="text-accent-rose">vendo</span>.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Strategy Sandbox → input «Soglia Buy», «Soglia Sell», «Finestra sentiment»; i marker BUY/SELL sul grafico mostrano dove sono scattate.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="stop-loss" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="stop loss perdita massima protezione uscita automatica">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Stop-loss — <em class="text-slate-400 font-normal">Stop-loss</em> <a href="#stop-loss" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Una vendita automatica che scatta se la posizione perde più di una percentuale prefissata, per limitare il danno.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È la cintura di sicurezza: decidi <em>prima</em> quanto sei disposto a perdere al massimo. Se il prezzo scende fin lì, esci senza discutere — eviti sia perdite catastrofiche sia la tentazione di "aspettare che risalga" mentre continua a scendere.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Compri a 100 con stop-loss 3% → se il prezzo tocca 97, vendita automatica: la perdita si ferma a −3% (più i costi).</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ P_{\text{stop}} = P_{\text{entrata}} \times (1 - sl), \qquad sl = \text{percentuale di stop} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Strategy Sandbox → input «Stop-loss %»; nel Paper Trading le vendite con motivo «stop_loss».</p></div>
+                        </div>
+                    </article>
+
+                    <article id="backtest" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="backtest backtesting simulazione storico test strategia sandbox">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Backtest — <em class="text-slate-400 font-normal">Backtesting</em> <a href="#backtest" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Far girare una strategia sui dati del passato, come se l'avessi usata allora, per misurare come sarebbe andata.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È la "macchina del tempo" della finanza: prima di rischiare soldi (anche finti), chiedi alla storia. Il simulatore ripercorre giorno per giorno i prezzi e le notizie salvate, applica le tue regole e ti dice profitti, perdite e scossoni che avresti vissuto. <strong>Serve tanto storico</strong>: più anni copri, più mercati diversi (rialzo, ribasso, noia) la strategia ha dovuto affrontare, più il risultato è credibile.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Regole: buy a sentiment &gt; 0,5, sell &lt; 0,1, stop 3%, capitale 10.000 €. Risultato su 2 anni: +18% totale, max drawdown −9%, 12 operazioni, win rate 58% — contro un Buy &amp; Hold del +11%.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Dettaglio asset → card «Strategy Sandbox»: imposti le regole, premi Esegui e ottieni metriche, equity curve e marker BUY/SELL sul grafico.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="look-ahead-bias" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="look ahead bias guardare avanti errore futuro overfitting">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Look-ahead bias — <em class="text-slate-400 font-normal">Look-ahead bias</em> <a href="#look-ahead-bias" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>L'errore di usare, in un punto della simulazione, informazioni che a quella data non erano ancora disponibili.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È come "prevedere" il risultato di una partita avendo già visto i gol: facile vincere così. In un backtest fatto male succede di nascosto: ad esempio decidere il 10 marzo usando il sentiment di una notizia uscita l'11. Il risultato sembra fantastico, ma nella realtà sarà impossibile da replicare.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Sbagliato: compro lunedì perché "la media sentiment della settimana" (che include venerdì!) è alta. Corretto: lunedì uso solo notizie fino a lunedì.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Non lo "vedi": è una garanzia del motore. Backtester e impatto forward usano solo dati disponibili a ciascuna data simulata.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="costi-esecuzione" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="commissioni slippage costi esecuzione fill execution costs">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Costi di esecuzione: commissioni & slippage — <em class="text-slate-400 font-normal">Commission & slippage</em> <a href="#costi-esecuzione" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La <strong>commissione</strong> è la tariffa pagata per eseguire un ordine; lo <strong>slippage</strong> è la differenza (quasi sempre a tuo sfavore) tra il prezzo che vedi e quello a cui l'ordine viene davvero eseguito.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Comprare e vendere non è gratis: ogni operazione "lima" un po' il risultato. Una strategia che opera spessissimo può sembrare vincente senza costi e perdere soldi con i costi. Per questo l'app li simula su ogni operazione, sia nel backtest sia nel paper trading: meglio una stima pessimista che un'illusione ottimista.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Prezzo 100, slippage 0,05%, commissione 0,1%: compri davvero a 100,05 e paghi 0,10 di commissione → il titolo deve salire ~0,3% (andata + ritorno) solo per andare in pari.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ P_{\text{buy}} = P \cdot (1 + s), \quad P_{\text{sell}} = P \cdot (1 - s), \quad \text{commissione} = \text{controvalore} \cdot c $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Applicati automaticamente a ogni operazione del backtest e del paper trading; il P&amp;L delle operazioni chiuse è già al netto.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="paper-trading" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="paper trading denaro finto virtuale portafoglio bot simulazione">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Paper trading — <em class="text-slate-400 font-normal">Paper trading</em> <a href="#paper-trading" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Eseguire una strategia <em>in avanti nel tempo</em>, sui prezzi reali di oggi, ma con denaro finto: tutto vero tranne i soldi.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Il backtest interroga il passato; il paper trading è l'esame sul presente: il bot decide oggi, senza conoscere il domani, e si vede se le decisioni reggono. È il banco di prova obbligato prima anche solo di pensare a soldi veri. Qui il bot parte con 10.000 € virtuali e applica la strategia sentiment a ogni ciclo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Ciclo delle 15:30: il bot vende TSLA (sentiment crollato, motivo «sentiment»), poi compra NVDA e ASML (segnali più forti) usando una frazione del capitale per posizione.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Home → sezione «Paper Trading»: valore, rendimento, P&amp;L, posizioni aperte, operazioni e equity curve, aggiornati in tempo reale.</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 6 · METRICHE DI PERFORMANCE ====== -->
+                <section id="sec-metriche" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-gauge-high text-accent-amber mr-2"></i>6 · Metriche di performance</h2>
+                    <p class="text-xs text-slate-500 mb-4">I numeri con cui si giudica una strategia — gli stessi per backtest e paper trading.</p>
+
+                    <article id="equity-curve" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="equity curve curva capitale valore portafoglio">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Equity Curve — <em class="text-slate-400 font-normal">Equity curve</em> <a href="#equity-curve" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il grafico del valore totale del portafoglio (contanti + posizioni) nel tempo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È l'elettrocardiogramma della strategia. L'ideale è una linea che sale in modo regolare; una che sale a strappi con crolli profondi indica una strategia stressante anche se alla fine guadagna. Forma e pendenza contano quanto il punto d'arrivo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Parti da 10.000 € → 10.400 → 10.100 → 10.800: la curva sale, con un piccolo avvallamento in mezzo (drawdown).</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Strategy Sandbox (equity del backtest) e sezione Paper Trading (equity del portafoglio virtuale, in tempo reale).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="buy-hold" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="buy and hold compra tieni benchmark confronto rendimento totale">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Rendimento totale vs Buy &amp; Hold — <em class="text-slate-400 font-normal">Total return vs Buy &amp; Hold</em> <a href="#buy-hold" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il <strong>rendimento totale</strong> è quanto ha reso la strategia dall'inizio alla fine. <strong>Buy &amp; Hold</strong> ("compra e tieni") è il termine di paragone: comprare subito e non toccare più nulla.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Buy &amp; Hold è la strategia più pigra possibile — e spesso sorprendentemente difficile da battere. Se tutto il lavoro di segnali e regole rende il 12% quando il semplice "compra e dimentica" rendeva il 15%, la strategia non sta aggiungendo valore: sta solo aggiungendo fatica e costi.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Strategia: +18%. Buy &amp; Hold dello stesso titolo nello stesso periodo: +11% → la strategia ha battuto il riferimento di 7 punti (il suo <a href="#alpha" class="text-brand-500 hover:underline">alpha</a>).</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Buy &amp; Hold» nella Strategy Sandbox; nel Paper Trading il benchmark è il Buy &amp; Hold equipesato dei titoli effettivamente tradati.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="alpha" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="alpha extra rendimento benchmark battere il mercato">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Alpha — <em class="text-slate-400 font-normal">Alpha</em> <a href="#alpha" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il rendimento <em>extra</em> della strategia rispetto al suo benchmark (qui: il Buy &amp; Hold).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Risponde alla domanda più importante di tutte: "tutta questa intelligenza serve a qualcosa?". Alpha positivo = la strategia ha aggiunto valore oltre al semplice possedere il titolo. Alpha negativo = meglio non fare niente. È l'obiettivo dichiarato dell'intera piattaforma: capire se il sentiment genera un vero alpha.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Strategia +18%, benchmark +11% → alpha = <span class="text-accent-emerald">+7%</span>. Strategia +8%, benchmark +11% → alpha = <span class="text-accent-rose">−3%</span>.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \alpha = R_{\text{strategia}} - R_{\text{benchmark}} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Alpha» nelle metriche della Strategy Sandbox e nella riga Performance del Paper Trading.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="sharpe" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="sharpe ratio rischio rendimento aggiustato volatilità">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Sharpe Ratio — <em class="text-slate-400 font-normal">Sharpe ratio</em> <a href="#sharpe" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il rendimento ottenuto per ogni unità di rischio (volatilità) sopportata: misura quanto "pulito" è stato il guadagno.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Due strategie guadagnano entrambe il 10%: la prima con una crescita tranquilla, la seconda con montagne russe da infarto. Lo Sharpe premia la prima. Come bussola: sotto 0 = perdi; 0–1 = mediocre; sopra 1 = buono; sopra 2 = eccellente (e raro).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Rendimento medio annuo 10%, volatilità 8% → Sharpe = 10/8 = <strong>1,25</strong> (buono). Stesso rendimento con volatilità 25% → Sharpe = 0,4 (mediocre).</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ S = \frac{\bar{R}_p - R_f}{\sigma_p}\sqrt{252} \qquad (\text{annualizzato su 252 giorni di borsa}) $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Sharpe» nella Strategy Sandbox e nella riga Performance del Paper Trading (stessa matematica, quindi confrontabili).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="sortino" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="sortino ratio rischio ribasso downside deviazione negativa">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Sortino Ratio — <em class="text-slate-400 font-normal">Sortino ratio</em> <a href="#sortino" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Come lo Sharpe, ma considera rischio solo la volatilità <em>al ribasso</em>: i giorni di guadagno forte non vengono puniti.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Lo Sharpe tratta un +5% improvviso come "rischio" tanto quanto un −5%, il che è un po' ingiusto: a nessuno dispiacciono i balzi verso l'alto. Il Sortino punisce solo gli scossoni verso il basso — quelli che fanno male davvero. Per strategie con guadagni a scatti è il voto più equo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Rendimento medio 10%; deviazione dei soli giorni negativi 5% → Sortino = 10/5 = <strong>2,0</strong>, mentre lo Sharpe (volatilità totale 8%) era 1,25.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{Sortino} = \frac{\bar{R}_p - R_f}{\sigma_{\text{down}}}\sqrt{252}, \qquad \sigma_{\text{down}} = \text{deviazione dei soli rendimenti negativi} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Sortino» accanto allo Sharpe, in Sandbox e Paper Trading.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="max-drawdown" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="max drawdown perdita massima picco crollo mdd">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Maximum Drawdown — <em class="text-slate-400 font-normal">Max drawdown (MDD)</em> <a href="#max-drawdown" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La peggior discesa mai subita dal portafoglio: dal punto più alto raggiunto al punto più basso successivo, in percentuale.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È il momento peggiore della storia della strategia: quanto avresti visto evaporare se fossi entrato nel giorno più sfortunato. Conta tanto perché misura la resistenza psicologica richiesta: pochi sopportano davvero un −40% senza vendere tutto nel panico — e per recuperare un −50% serve un +100%.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Equity: 10.000 → picco 12.000 → minimo 9.600 → 13.000. MDD = (12.000 − 9.600) / 12.000 = <span class="text-accent-rose">−20%</span>, anche se alla fine sei in guadagno.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{MDD} = \max_t \frac{\max_{s \le t} V_s - V_t}{\max_{s \le t} V_s} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Max Drawdown» in Sandbox e Paper Trading; a occhio, è l'avvallamento più profondo dell'equity curve.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="win-rate" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="win rate percentuale operazioni vincenti trade">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Win rate — <em class="text-slate-400 font-normal">Win rate</em> <a href="#win-rate" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>La percentuale di operazioni chiuse in guadagno sul totale delle operazioni chiuse.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Quante volte la strategia "ci azzecca". Attenzione però: da solo inganna. Una strategia può vincere il 90% delle volte guadagnando briciole e perdere tutto nel 10% di operazioni disastrose; un'altra può vincere solo il 35% delle volte ma con vincite enormi e perdite piccole (grazie allo stop-loss) ed essere ottima.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">12 operazioni chiuse, 7 in profitto → win rate = 7/12 ≈ <strong>58%</strong>.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{win rate} = \frac{\text{operazioni in profitto}}{\text{operazioni totali chiuse}} \times 100\% $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Tile «Win rate» in Sandbox e Paper Trading (calcolato sulle operazioni chiuse, al netto dei costi).</p></div>
+                        </div>
+                    </article>
+
+                    <article id="top-opportunita" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="top opportunità punteggio composito ranking classifica score leaderboard">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Punteggio «Top Opportunità» (0–100) — <em class="text-slate-400 font-normal">Composite opportunity score</em> <a href="#top-opportunita" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Un voto da 0 a 100 per ogni titolo che combina quattro ingredienti: sentiment attuale, sentiment in miglioramento, quadro tecnico (RSI/MACD) e momentum di prezzo.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Con ~500 titoli non puoi guardarli uno a uno: la classifica li ordina per "interesse" in questo momento. Ogni componente è visibile, così capisci <em>perché</em> un titolo è in alto (es. notizie ottime ma tecnico debole). È un riassunto per decidere <em>dove guardare</em>, non un consiglio d'acquisto.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">NVDA: sentiment +0,7, sentiment in salita, MACD positivo, prezzo +6% sul mese → score 84, 1ª in classifica. Componenti mostrate accanto al punteggio.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \text{score} = 100 \cdot \frac{\sum_i w_i\, c_i + 1}{2}, \qquad c_i \in [-1, 1] = \text{componenti}, \; w_i = \text{pesi} $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Home → leaderboard «Top Opportunità» (Migliori/Peggiori); click su una riga per aprire il titolo.</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 7 · RISCHIO & AVVERTENZE ====== -->
+                <section id="sec-rischio" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-shield-halved text-accent-rose mr-2"></i>7 · Rischio & avvertenze</h2>
+                    <p class="text-xs text-slate-500 mb-4">Le cose da sapere prima di prendere sul serio qualunque numero di questa app.</p>
+
+                    <article id="volatilita" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="volatilità deviazione standard rischio oscillazione sigma">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Volatilità — <em class="text-slate-400 font-normal">Volatility</em> <a href="#volatilita" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Quanto ampiamente oscillano i rendimenti di un titolo o portafoglio; statisticamente, la loro deviazione standard.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>È il mare in cui navighi: calmo (oscillazioni piccole e regolari) o in tempesta (sbalzi violenti in entrambe le direzioni). Alta volatilità = possibili guadagni rapidi ma anche perdite rapide. Non è "cattiva" di per sé, ma va messa in conto: è il denominatore dello Sharpe.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-calculator"></i> Esempio</span><div class="wexample">Titolo A: giorni tipici tra −0,5% e +0,5% → tranquillo. Titolo B: giorni tra −5% e +5% → 10 volte più volatile, a parità di rendimento medio.</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-square-root-variable"></i> Formula</span><div class="wformula">$$ \sigma = \sqrt{\tfrac{1}{n-1}\sum_i (r_i - \bar{r})^2} \qquad (\text{annualizzata: } \sigma\sqrt{252}) $$</div></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Implicita in Sharpe/Sortino e nella forma dell'equity curve: più è frastagliata, più volatilità c'è.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="rischio-perdita" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="rischio perdita capitale soldi reali denaro">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Rischio di perdita — <em class="text-slate-400 font-normal">Risk of loss</em> <a href="#rischio-perdita" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Investendo in strumenti finanziari si può perdere una parte — o in casi estremi la totalità — del capitale investito.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>Nessuna strategia, indicatore o AI elimina il rischio: al massimo lo gestisce. Qui tutto gira con denaro <strong>finto</strong> proprio per imparare senza farsi male. Se un giorno passassi a soldi veri: investi solo ciò che puoi permetterti di perdere, diversifica, e diffida di chiunque prometta guadagni sicuri.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">Le etichette «non è un consiglio d'acquisto» su ranking e paper trading esistono per questo motivo.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="limiti-dati" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="limiti dati copertura ritardo qualità campione bias">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">Limiti dei dati — <em class="text-slate-400 font-normal">Data limitations</em> <a href="#limiti-dati" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Ogni analisi vale quanto i dati su cui poggia: copertura parziale, ritardi e campioni piccoli ne riducono l'affidabilità.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>L'app vede solo le notizie delle fonti collegate (e le ultime ~10 per titolo da yfinance), con prezzi a chiusura giornaliera: una fotografia utile ma incompleta del mondo. Inoltre lo storico del sentiment è giovane: correlazioni e modelli auto-appresi diventeranno affidabili man mano che i mesi di dati si accumulano. Diffida sempre dei numeri calcolati su pochi esempi (vedi <a href="#campione-minimo" class="text-brand-500 hover:underline">campione minimo</a>).</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">«n» nella matrice di correlazione, il filtro «Solo verificate» sulle fonti, e i badge «pochi dati» dove il campione è scarso.</p></div>
+                        </div>
+                    </article>
+
+                    <article id="rendimenti-passati" class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="rendimenti passati futuri garanzia disclaimer avvertenza past performance">
+                        <h3 class="text-base font-bold font-outfit text-white mb-3">«I rendimenti passati non garantiscono quelli futuri» — <em class="text-slate-400 font-normal">Past performance disclaimer</em> <a href="#rendimenti-passati" class="text-slate-600 hover:text-brand-500 text-xs ml-1"><i class="fa-solid fa-link"></i></a></h3>
+                        <div class="space-y-3">
+                            <div><span class="wlabel"><i class="fa-solid fa-quote-left"></i> Definizione</span><p>Il fatto che una strategia abbia funzionato sul passato (anche in un backtest perfetto) non implica che funzionerà in futuro.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-child"></i> In parole semplici</span><p>I mercati cambiano: regole che sfruttavano un comportamento di ieri possono smettere di funzionare domani, proprio quando inizi a usarle. È il motivo per cui il backtest è solo il primo filtro, il paper trading il secondo, e la prudenza l'ultimo — sempre.</p></div>
+                            <div><span class="wlabel"><i class="fa-solid fa-location-dot"></i> Dove lo vedi nell'app</span><p class="wapp">È il disclaimer in cima a questa wiki e l'assunzione dietro ogni metrica di backtest che guardi.</p></div>
+                        </div>
+                    </article>
+                </section>
+
+                <!-- ====== 8 · GLOSSARIO RAPIDO ====== -->
+                <section id="sec-glossario" x-show="sectionVisible($el)" class="mb-10">
+                    <h2 class="text-xl font-bold font-outfit text-white mb-1"><i class="fa-solid fa-list-ul text-brand-500 mr-2"></i>8 · Glossario rapido</h2>
+                    <p class="text-xs text-slate-500 mb-4">Indice alfabetico: click su un termine per saltare alla voce completa.</p>
+
+                    <article class="wentry glass-panel rounded-xl p-5 mb-4" x-show="match($el)" data-keywords="glossario indice alfabetico termini">
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1 text-sm">
+                            <a href="#alpha" class="text-slate-300 hover:text-brand-500 py-0.5">Alpha</a>
+                            <a href="#asset-etf" class="text-slate-300 hover:text-brand-500 py-0.5">Asset / Azione / ETF</a>
+                            <a href="#backtest" class="text-slate-300 hover:text-brand-500 py-0.5">Backtest</a>
+                            <a href="#buy-hold" class="text-slate-300 hover:text-brand-500 py-0.5">Buy &amp; Hold</a>
+                            <a href="#campione-minimo" class="text-slate-300 hover:text-brand-500 py-0.5">Campione minimo</a>
+                            <a href="#candela-ohlcv" class="text-slate-300 hover:text-brand-500 py-0.5">Candela (OHLCV)</a>
+                            <a href="#costi-esecuzione" class="text-slate-300 hover:text-brand-500 py-0.5">Commissioni &amp; slippage</a>
+                            <a href="#correlazione" class="text-slate-300 hover:text-brand-500 py-0.5">Correlazione (Pearson)</a>
+                            <a href="#spearman" class="text-slate-300 hover:text-brand-500 py-0.5">Correlazione (Spearman)</a>
+                            <a href="#causa-effetto" class="text-slate-300 hover:text-brand-500 py-0.5">Correlazione ≠ causalità</a>
+                            <a href="#ema" class="text-slate-300 hover:text-brand-500 py-0.5">EMA (media mobile esp.)</a>
+                            <a href="#equity-curve" class="text-slate-300 hover:text-brand-500 py-0.5">Equity Curve</a>
+                            <a href="#finbert" class="text-slate-300 hover:text-brand-500 py-0.5">FinBERT</a>
+                            <a href="#keyword-fallback" class="text-slate-300 hover:text-brand-500 py-0.5">Fallback a parole chiave</a>
+                            <a href="#limiti-dati" class="text-slate-300 hover:text-brand-500 py-0.5">Limiti dei dati</a>
+                            <a href="#long-short" class="text-slate-300 hover:text-brand-500 py-0.5">Long / Short</a>
+                            <a href="#look-ahead-bias" class="text-slate-300 hover:text-brand-500 py-0.5">Look-ahead bias</a>
+                            <a href="#macd" class="text-slate-300 hover:text-brand-500 py-0.5">MACD</a>
+                            <a href="#max-drawdown" class="text-slate-300 hover:text-brand-500 py-0.5">Maximum Drawdown</a>
+                            <a href="#nlp" class="text-slate-300 hover:text-brand-500 py-0.5">NLP</a>
+                            <a href="#paper-trading" class="text-slate-300 hover:text-brand-500 py-0.5">Paper trading</a>
+                            <a href="#prezzo" class="text-slate-300 hover:text-brand-500 py-0.5">Prezzo / Quotazione</a>
+                            <a href="#top-opportunita" class="text-slate-300 hover:text-brand-500 py-0.5">Punteggio Top Opportunità</a>
+                            <a href="#regole-entrata-uscita" class="text-slate-300 hover:text-brand-500 py-0.5">Regole entrata/uscita</a>
+                            <a href="#rendimento" class="text-slate-300 hover:text-brand-500 py-0.5">Rendimento %</a>
+                            <a href="#forward-return" class="text-slate-300 hover:text-brand-500 py-0.5">Rendimento forward</a>
+                            <a href="#rendimenti-passati" class="text-slate-300 hover:text-brand-500 py-0.5">Rendimenti passati (disclaimer)</a>
+                            <a href="#rischio-perdita" class="text-slate-300 hover:text-brand-500 py-0.5">Rischio di perdita</a>
+                            <a href="#rsi" class="text-slate-300 hover:text-brand-500 py-0.5">RSI</a>
+                            <a href="#sentiment" class="text-slate-300 hover:text-brand-500 py-0.5">Sentiment</a>
+                            <a href="#sentiment-score" class="text-slate-300 hover:text-brand-500 py-0.5">Sentiment score (−1…+1)</a>
+                            <a href="#sharpe" class="text-slate-300 hover:text-brand-500 py-0.5">Sharpe Ratio</a>
+                            <a href="#sortino" class="text-slate-300 hover:text-brand-500 py-0.5">Sortino Ratio</a>
+                            <a href="#stop-loss" class="text-slate-300 hover:text-brand-500 py-0.5">Stop-loss</a>
+                            <a href="#strategia" class="text-slate-300 hover:text-brand-500 py-0.5">Strategia di trading</a>
+                            <a href="#timeframe" class="text-slate-300 hover:text-brand-500 py-0.5">Timeframe</a>
+                            <a href="#volatilita" class="text-slate-300 hover:text-brand-500 py-0.5">Volatilità</a>
+                            <a href="#volume" class="text-slate-300 hover:text-brand-500 py-0.5">Volume</a>
+                            <a href="#win-rate" class="text-slate-300 hover:text-brand-500 py-0.5">Win rate</a>
+                        </div>
+                    </article>
+                </section>
+
+                <footer class="mt-12 mb-6 text-center text-xs text-slate-600">
+                    FinanceBuddy — Wiki didattica (Fase 6) · contenuto informativo, non è consulenza finanziaria.
+                </footer>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function wikiApp() {
+            return {
+                q: '',
+                active: '',
+                sections: [
+                    { id: 'sec-basi',       title: 'Concetti di base',        icon: 'fa-solid fa-coins' },
+                    { id: 'sec-sentiment',  title: 'Analisi del sentiment',   icon: 'fa-solid fa-comments' },
+                    { id: 'sec-tecnica',    title: 'Analisi tecnica',         icon: 'fa-solid fa-wave-square' },
+                    { id: 'sec-statistica', title: 'Statistica & correlazione', icon: 'fa-solid fa-chart-scatter' },
+                    { id: 'sec-strategia',  title: 'Strategia & backtesting', icon: 'fa-solid fa-flask-vial' },
+                    { id: 'sec-metriche',   title: 'Metriche di performance', icon: 'fa-solid fa-gauge-high' },
+                    { id: 'sec-rischio',    title: 'Rischio & avvertenze',    icon: 'fa-solid fa-shield-halved' },
+                    { id: 'sec-glossario',  title: 'Glossario rapido',        icon: 'fa-solid fa-list-ul' },
+                ],
+
+                init() {
+                    // Open directly on a deep-linked entry (e.g. /wiki/#sharpe)
+                    this.$nextTick(() => {
+                        if (window.location.hash) {
+                            const el = document.querySelector(window.location.hash);
+                            if (el) el.scrollIntoView();
+                        }
+                        this.onScroll();
+                    });
+                },
+
+                // --- search ---------------------------------------------------
+                get qNorm() { return this.q.trim().toLowerCase(); },
+                match(el) {
+                    if (!this.qNorm) return true;
+                    return ((el.dataset.keywords || '') + ' ' + el.textContent)
+                        .toLowerCase().includes(this.qNorm);
+                },
+                sectionVisible(el) {
+                    if (!this.qNorm) return true;
+                    return Array.from(el.querySelectorAll('article')).some(a => this.match(a));
+                },
+                get anyVisible() {
+                    if (!this.qNorm) return true;
+                    return Array.from(document.querySelectorAll('article.wentry')).some(a => this.match(a));
+                },
+
+                // --- navigation / active section ------------------------------
+                goTo(id) {
+                    const el = document.getElementById(id);
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    history.replaceState(null, '', '#' + id);
+                },
+                onScroll() {
+                    const scroller = document.getElementById('wiki-scroll');
+                    let current = this.sections[0]?.id || '';
+                    for (const s of this.sections) {
+                        const el = document.getElementById(s.id);
+                        if (el && el.offsetTop <= scroller.scrollTop + 140) current = s.id;
+                    }
+                    this.active = current;
+                },
+            };
+        }
+    </script>
+</body>
+</html>

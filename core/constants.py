@@ -353,3 +353,9 @@ PAPER_MIN_SENTIMENT_ARTICLES = 1  # min scored articles in the window to trust a
 # How far back to look for a tradable "latest close" (markets close on weekends/
 # holidays, so a few days isn't enough; mirror the recent-price window).
 PAPER_PRICE_LOOKBACK_DAYS = 30
+
+# Home/overview ("Panoramica") summary windows — /api/summary/.
+# News volume is a 24h pulse; sentiment and alerts use a 7d window so the
+# numbers stay meaningful over weekends and low-news days.
+SUMMARY_NEWS_HOURS = 24
+SUMMARY_WINDOW_DAYS = 7

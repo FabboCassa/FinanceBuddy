@@ -23,6 +23,9 @@ class AssetViewSet(viewsets.ModelViewSet):
     """
     queryset = Asset.objects.all().order_by('symbol')
     serializer_class = AssetSerializer
+    # Symbols like "000333.SZ" contain a dot: DRF's default lookup regex
+    # ([^/.]+) excludes it and 404s /api/assets/<symbol>/... detail routes.
+    lookup_value_regex = r'[^/]+'
 
     @action(detail=True, methods=['post'])
     def sync(self, request, pk=None):
@@ -184,6 +187,40 @@ class RankingView(APIView):
         return Response(AssetScoreSerializer(queryset, many=True).data)
 
 
+class MarketSummaryView(APIView):
+    """
+    Home/overview endpoint: market-wide snapshot for the dashboard landing view.
+
+    GET /api/summary/ → tracked-asset count, news volume in the last
+    SUMMARY_NEWS_HOURS, average sentiment and alert count over the last
+    SUMMARY_WINDOW_DAYS, plus the current best/worst composite scores.
+    """
+
+    def get(self, request):
+        from django.db.models import Avg
+
+        now = timezone.now()
+        news_since = now - datetime.timedelta(hours=constants.SUMMARY_NEWS_HOURS)
+        window_since = now - datetime.timedelta(days=constants.SUMMARY_WINDOW_DAYS)
+
+        avg_sentiment = (
+            NewsArticle.objects
+            .filter(timestamp__gte=window_since, sentiment_score__isnull=False)
+            .aggregate(v=Avg('sentiment_score'))['v']
+        )
+        best = AssetScore.objects.order_by('-score').first()
+        worst = AssetScore.objects.order_by('score').first()
+
+        return Response({
+            'assets_tracked': Asset.objects.count(),
+            'news_24h': NewsArticle.objects.filter(timestamp__gte=news_since).count(),
+            'avg_sentiment_7d': avg_sentiment,
+            'alerts_7d': Alert.objects.filter(created_at__gte=window_since).count(),
+            'best': {'symbol': best.asset_id, 'score': best.score} if best else None,
+            'worst': {'symbol': worst.asset_id, 'score': worst.score} if worst else None,
+        })
+
+
 class CorrelationView(APIView):
     """
     Phase 2 endpoint: sentiment ↔ forward-return correlation for one asset.
@@ -314,3 +351,15 @@ class DashboardView(TemplateView):
     Serves the premium single-page dashboard HTML template.
     """
     template_name = 'core/dashboard.html'
+
+
+class WikiView(TemplateView):
+    """
+    Phase 6: educational Knowledge Base / wiki.
+
+    Serves the static `/wiki/` page that explains — in plain Italian, with the
+    standard English term alongside, numeric examples and KaTeX formulas —
+    every concept used elsewhere in the dashboard. Deep-linkable anchors
+    (e.g. /wiki/#sharpe) are the targets of the dashboard's contextual ℹ︎ icons.
+    """
+    template_name = 'core/wiki.html'

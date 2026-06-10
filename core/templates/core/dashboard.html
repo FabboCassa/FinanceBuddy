@@ -98,9 +98,9 @@
         
         <!-- ================= SIDEBAR (GLASSMORPHIC) ================= -->
         <aside class="w-80 glass-sidebar flex flex-col z-20 flex-shrink-0">
-            <!-- Sidebar Header -->
+            <!-- Sidebar Header (click → home/overview) -->
             <div class="p-6 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-3 cursor-pointer" @click="goHome()" title="Torna alla panoramica">
                     <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/25">
                         <i class="fa-solid fa-chart-line-up text-white text-lg"></i>
                     </div>
@@ -111,6 +111,10 @@
                         <span class="text-xs font-semibold uppercase tracking-wider text-brand-500">Sentiment AI</span>
                     </div>
                 </div>
+                <a href="/wiki/" title="Wiki — impara i concetti usati nell'app"
+                   class="w-9 h-9 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-brand-500/40 flex items-center justify-center text-slate-400 hover:text-brand-500 transition-colors">
+                    <i class="fa-solid fa-book-open text-sm"></i>
+                </a>
             </div>
 
             <!-- Add Asset Action -->
@@ -202,8 +206,20 @@
             <!-- Top Dashboard Bar -->
             <header class="h-20 glass-panel border-b border-slate-800 px-8 flex items-center justify-between flex-shrink-0 z-10">
                 <div class="flex items-center space-x-4">
+                    <!-- Home/overview title (no asset selected) -->
+                    <template x-if="!activeAsset">
+                        <div>
+                            <span class="text-2xl font-extrabold font-outfit text-white tracking-tight">Panoramica</span>
+                            <div class="text-xs text-slate-400 font-medium">Mercato, portafoglio e segnali in un colpo d'occhio</div>
+                        </div>
+                    </template>
                     <template x-if="activeAsset">
                         <div class="flex items-center space-x-3">
+                            <!-- Back to home -->
+                            <button @click="goHome()" title="Torna alla panoramica"
+                                    class="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700/50 hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition-all active:scale-95">
+                                <i class="fa-solid fa-arrow-left text-sm"></i>
+                            </button>
                             <div>
                                 <div class="flex items-center space-x-2">
                                     <span class="text-2xl font-extrabold font-outfit text-white tracking-tight" x-text="activeAsset.symbol"></span>
@@ -218,8 +234,8 @@
                 </div>
 
                 <div class="flex items-center space-x-3">
-                    <!-- Manual Sync Button -->
-                    <button @click="syncActiveAsset()" :disabled="syncing"
+                    <!-- Manual Sync Button (asset detail only) -->
+                    <button x-show="activeAsset" @click="syncActiveAsset()" :disabled="syncing"
                             class="px-4 py-2 bg-slate-900 border border-slate-700/50 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition-all active:scale-95 disabled:opacity-50">
                         <i class="fa-solid fa-arrows-rotate" :class="syncing ? 'animate-spin text-brand-400' : ''"></i>
                         <span x-text="syncing ? 'Sincronizzazione...' : 'Aggiorna Dati'"></span>
@@ -242,13 +258,76 @@
                     </button>
                 </div>
 
+                <!-- ================= HOME / PANORAMICA: market summary + latest alerts ================= -->
+                <div x-show="!activeAsset" class="space-y-6">
+                    <!-- Summary stat cards -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="glass-panel rounded-2xl p-5 shadow-xl">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Sentiment medio (7g)</div>
+                            <div class="text-2xl font-extrabold font-outfit"
+                                 :class="summary && summary.avg_sentiment_7d > 0.05 ? 'text-accent-emerald' : (summary && summary.avg_sentiment_7d < -0.05 ? 'text-accent-rose' : 'text-slate-200')"
+                                 x-text="summary && summary.avg_sentiment_7d !== null ? Number(summary.avg_sentiment_7d).toFixed(2) : '—'"></div>
+                            <div class="text-[10px] text-slate-500 mt-1">su tutte le news con punteggio</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 shadow-xl">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">News (24h)</div>
+                            <div class="text-2xl font-extrabold font-outfit text-white" x-text="summary ? summary.news_24h : '—'"></div>
+                            <div class="text-[10px] text-slate-500 mt-1">articoli ingeriti nell'ultimo giorno</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 shadow-xl">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Alert (7g)</div>
+                            <div class="text-2xl font-extrabold font-outfit text-white" x-text="summary ? summary.alerts_7d : '—'"></div>
+                            <div class="text-[10px] text-slate-500 mt-1">soglie di sentiment scattate</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 shadow-xl">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Asset monitorati</div>
+                            <div class="text-2xl font-extrabold font-outfit text-white" x-text="summary ? summary.assets_tracked : '—'"></div>
+                            <div class="text-[10px] text-slate-500 mt-1" x-show="summary && summary.best">
+                                top: <span class="text-accent-emerald font-semibold cursor-pointer hover:underline"
+                                           @click="openRanked(summary.best.symbol)"
+                                           x-text="summary.best ? `${summary.best.symbol} (${Math.round(summary.best.score)})` : ''"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Latest alerts (all assets) -->
+                    <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden" x-show="globalAlerts.length > 0">
+                        <div class="absolute inset-0 bg-gradient-to-b from-accent-rose/5 to-transparent pointer-events-none"></div>
+                        <div class="flex items-center justify-between mb-4 relative z-10">
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
+                                <i class="fa-solid fa-bell text-accent-amber"></i> Ultimi Alert
+                            </h2>
+                        </div>
+                        <div class="space-y-2 relative z-10 max-h-64 overflow-y-auto pr-1">
+                            <template x-for="a in globalAlerts.slice(0, 8)" :key="a.id">
+                                <div @click="openRanked(a.asset_symbol)"
+                                     class="flex items-center justify-between bg-slate-950/70 border border-slate-800/80 rounded-xl px-4 py-2.5 cursor-pointer hover:border-slate-600 transition-colors">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <span class="w-2 h-2 rounded-full flex-shrink-0"
+                                              :class="a.level === 'Positivo' ? 'bg-accent-emerald' : 'bg-accent-rose'"></span>
+                                        <span class="text-sm font-bold text-white" x-text="a.asset_symbol"></span>
+                                        <span class="text-xs text-slate-400 truncate" x-text="a.message"></span>
+                                    </div>
+                                    <div class="flex items-center gap-3 flex-shrink-0 ml-3">
+                                        <span class="text-xs font-semibold"
+                                              :class="a.level === 'Positivo' ? 'text-accent-emerald' : 'text-accent-rose'"
+                                              x-text="Number(a.avg_sentiment).toFixed(2)"></span>
+                                        <span class="text-[10px] text-slate-500" x-text="new Date(a.created_at).toLocaleDateString('it-IT')"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ================= TOP OPPORTUNITÀ (Phase 4: composite ranking) ================= -->
-                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <div x-show="!activeAsset" class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-amber-500/5 to-transparent pointer-events-none"></div>
                     <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
                         <div>
                             <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
                                 <i class="fa-solid fa-ranking-star text-accent-amber"></i> Top Opportunità
+                                <a href="/wiki/#top-opportunita" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è il punteggio composito? Apri la wiki"><i class="fa-regular fa-circle-question text-xs"></i></a>
                             </h2>
                             <p class="text-xs text-slate-400">Classifica composita su tutti i titoli — sentiment + tecnico + momentum. <span class="text-slate-500">Non è un consiglio d'acquisto.</span></p>
                         </div>
@@ -311,13 +390,14 @@
                 </div>
 
                 <!-- ================= PAPER TRADING (Phase 5: virtual portfolio) ================= -->
-                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <div x-show="!activeAsset" class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-accent-emerald/5 to-transparent pointer-events-none"></div>
                     <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
                         <div>
                             <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
                                 <i class="fa-solid fa-robot text-accent-emerald"></i> Paper Trading
                                 <span class="text-xxs font-semibold px-2 py-0.5 rounded bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/25">Portafoglio Virtuale</span>
+                                <a href="/wiki/#paper-trading" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è il paper trading? Apri la wiki"><i class="fa-regular fa-circle-question text-xs"></i></a>
                             </h2>
                             <p class="text-xs text-slate-400">Un bot automatico investe <strong>denaro finto</strong> seguendo la stessa strategia del sentiment (compra quando il sentiment è forte, vende su inversione o stop-loss). Nessun rischio reale — serve a vedere come andrebbe.</p>
                         </div>
@@ -358,7 +438,7 @@
                         <!-- Equity curve -->
                         <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner" x-show="portfolioHistory.length > 1">
                             <div class="flex items-center justify-between px-2 pt-1 pb-2">
-                                <span class="text-xs font-bold text-slate-300 tracking-tight">Equity Curve <span class="text-slate-500 font-normal">(valore del portafoglio virtuale nel tempo)</span></span>
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">Equity Curve <span class="text-slate-500 font-normal">(valore del portafoglio virtuale nel tempo)</span> <a href="/wiki/#equity-curve" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è l'equity curve? Apri la wiki"><i class="fa-regular fa-circle-question"></i></a></span>
                                 <span class="text-xs text-slate-500" x-text="'Capitale iniziale: € ' + fmtMoney(portfolio.initial_capital)"></span>
                             </div>
                             <div id="portfolio-equity-canvas" class="w-full" style="height: 200px;"></div>
@@ -369,6 +449,7 @@
                             <p class="text-xs font-bold text-slate-300 mb-2 flex items-center gap-2">
                                 <i class="fa-solid fa-chart-line text-accent-amber"></i> Performance
                                 <span class="text-slate-500 font-normal">— quanto è andato bene il bot, e se ha battuto il "compra e tieni"</span>
+                                <a href="/wiki/#sec-metriche" class="text-slate-500 hover:text-brand-500 transition-colors" title="Sharpe, Sortino, drawdown… spiegati nella wiki"><i class="fa-regular fa-circle-question"></i></a>
                             </p>
                             <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-center">
                                 <div class="bg-slate-900/50 rounded-lg px-2 py-2" title="Rendimento del bot meno quello che avresti ottenuto comprando e tenendo gli stessi titoli. Positivo = il bot ha aggiunto valore col timing.">
@@ -461,13 +542,13 @@
                     </div>
                 </div>
 
-                <!-- MAIN CHART SECTION -->
-                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <!-- MAIN CHART SECTION (asset detail only) -->
+                <div x-show="activeAsset" class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-b from-brand-500/5 to-transparent pointer-events-none"></div>
                     <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
                         <div>
-                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight">Storico Prezzi, Indicatori e Notizie</h2>
-                            <p class="text-xs text-slate-400">Candele di mercato con EMA, marker di sentiment e indicatori tecnici (RSI, MACD)</p>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight">Storico Prezzi, Indicatori e Notizie <a href="/wiki/#candela-ohlcv" class="text-slate-500 hover:text-brand-500 transition-colors" title="Candele, EMA, indicatori… spiegati nella wiki"><i class="fa-regular fa-circle-question text-xs"></i></a></h2>
+                            <p class="text-xs text-slate-400">Candele di mercato con <a href="/wiki/#ema" class="hover:text-brand-500 underline decoration-dotted underline-offset-2" title="Cos'è la EMA? Apri la wiki">EMA</a>, marker di sentiment e indicatori tecnici (RSI, MACD)</p>
                         </div>
                         <div class="flex items-center gap-2 flex-wrap">
                             <!-- EMA toggles -->
@@ -512,7 +593,7 @@
                         <!-- RSI Pane -->
                         <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner">
                             <div class="flex items-center justify-between px-2 pt-1 pb-2">
-                                <span class="text-xs font-bold text-slate-300 tracking-tight">RSI <span class="text-slate-500 font-normal">(14)</span></span>
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">RSI <span class="text-slate-500 font-normal">(14)</span> <a href="/wiki/#rsi" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è l'RSI? Apri la wiki"><i class="fa-regular fa-circle-question"></i></a></span>
                                 <span class="text-xs font-semibold" x-text="taSummary.rsiText"
                                       :class="taSummary.rsi >= 70 ? 'text-accent-rose' : (taSummary.rsi <= 30 ? 'text-accent-emerald' : 'text-slate-400')"></span>
                             </div>
@@ -521,7 +602,7 @@
                         <!-- MACD Pane -->
                         <div class="bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 shadow-inner">
                             <div class="flex items-center justify-between px-2 pt-1 pb-2">
-                                <span class="text-xs font-bold text-slate-300 tracking-tight">MACD <span class="text-slate-500 font-normal">(12, 26, 9)</span></span>
+                                <span class="text-xs font-bold text-slate-300 tracking-tight">MACD <span class="text-slate-500 font-normal">(12, 26, 9)</span> <a href="/wiki/#macd" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è il MACD? Apri la wiki"><i class="fa-regular fa-circle-question"></i></a></span>
                                 <span class="text-xs font-semibold" x-text="taSummary.macdText"
                                       :class="taSummary.macdHist >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"></span>
                             </div>
@@ -530,8 +611,8 @@
                     </div>
                 </div>
 
-                <!-- CORRELATION STATS & NEWS DRAWER (GRID) -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- CORRELATION STATS & NEWS DRAWER (GRID, asset detail only) -->
+                <div x-show="activeAsset" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
                     <!-- Stats / Correlation Panel (1/3 cols) -->
                     <div class="glass-panel rounded-2xl p-6 shadow-xl lg:col-span-1 flex flex-col">
@@ -561,7 +642,7 @@
                             <!-- Correlation Matrix (sentiment ↔ forward return) -->
                             <div class="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 space-y-2">
                                 <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center justify-between">
-                                    <span>Matrice di Correlazione</span>
+                                    <span>Matrice di Correlazione <a href="/wiki/#correlazione" class="text-slate-500 hover:text-brand-500 transition-colors normal-case" title="Pearson, Spearman, forward return… spiegati nella wiki"><i class="fa-regular fa-circle-question"></i></a></span>
                                     <span class="text-[10px] font-semibold text-slate-500 normal-case" x-text="correlation.sample_size + ' news'"></span>
                                 </h4>
                                 <p class="text-[10px] text-slate-500 mb-2">Sentiment vs variazione di prezzo (Pearson / Spearman) su orizzonti futuri.</p>
@@ -766,13 +847,14 @@
 
                 </div>
 
-                <!-- ================= STRATEGY SANDBOX (Phase 3: Backtesting) ================= -->
-                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden" x-show="chartDataLength > 0">
+                <!-- ================= STRATEGY SANDBOX (Phase 3: Backtesting, asset detail only) ================= -->
+                <div class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden" x-show="activeAsset && chartDataLength > 0">
                     <div class="absolute inset-0 bg-gradient-to-b from-accent-violet/5 to-transparent pointer-events-none"></div>
                     <div class="flex items-center justify-between mb-4 relative z-10 flex-wrap gap-3">
                         <div>
                             <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
                                 <i class="fa-solid fa-flask-vial text-accent-violet"></i> Strategy Sandbox
+                                <a href="/wiki/#backtest" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è un backtest? Apri la wiki"><i class="fa-regular fa-circle-question text-xs"></i></a>
                                 <span class="text-xxs font-semibold px-2 py-0.5 rounded bg-accent-violet/15 text-accent-violet border border-accent-violet/25">Backtesting</span>
                             </h2>
                             <p class="text-xs text-slate-400">Simula storicamente una strategia long-only guidata dal sentiment (entra ≥ soglia BUY, esce ≤ soglia SELL o su stop-loss)</p>
@@ -868,6 +950,9 @@
                 ranking: [],
                 rankingOrder: 'top',
                 loadingRanking: false,
+                // Home/overview ("Panoramica"): market summary + latest global alerts.
+                summary: null,
+                globalAlerts: [],
                 // Phase 5: paper-trading virtual portfolio
                 portfolio: null,
                 portfolioHistory: [],
@@ -926,6 +1011,7 @@
                     this.loadAssets();
                     this.loadRanking();
                     this.loadPortfolio();
+                    this.loadHomeData();
                     this.connectPortfolioSocket();
 
                     // Handle window resize dynamically for responsive chart
@@ -1034,16 +1120,33 @@
                 },
 
                 loadAssets() {
+                    // No default selection: the dashboard opens on the home/overview
+                    // ("Panoramica") view; an asset is shown only when clicked.
                     fetch('/api/assets/')
                         .then(res => res.json())
-                        .then(data => {
-                            this.assets = data;
-                            if (data.length > 0 && !this.activeAsset) {
-                                // Default select first asset
-                                this.selectAsset(data[0]);
-                            }
-                        })
+                        .then(data => { this.assets = data; })
                         .catch(err => console.error("Error loading assets:", err));
+                },
+
+                // Home/overview: market-wide summary + latest alerts across all assets.
+                loadHomeData() {
+                    fetch('/api/summary/')
+                        .then(res => res.json())
+                        .then(data => { this.summary = data; })
+                        .catch(err => console.error("Error loading summary:", err));
+                    fetch('/api/alerts/')
+                        .then(res => res.json())
+                        .then(data => { this.globalAlerts = Array.isArray(data) ? data : (data.results || []); })
+                        .catch(err => console.error("Error loading alerts:", err));
+                },
+
+                goHome() {
+                    this.activeAsset = null;
+                    this.selectedArticle = null;
+                    this.alertMessage = '';
+                    this.loadRanking();
+                    this.loadHomeData();
+                    this.$nextTick(() => this.renderPortfolioChart());
                 },
 
                 // Phase 4: load the composite opportunity leaderboard.
@@ -1669,8 +1772,8 @@
                             this.assets = this.assets.filter(a => a.symbol !== symbol);
                             this.alertMessage = `Asset ${symbol} eliminato.`;
                             if (this.activeAsset && this.activeAsset.symbol === symbol) {
-                                this.activeAsset = this.assets.length > 0 ? this.assets[0] : null;
-                                this.loadChartAndNews();
+                                // The open asset was deleted → back to the home view.
+                                this.goHome();
                             }
                         }
                     })

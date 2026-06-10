@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-09 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 🚧 (paper-trading portfolio + execution costs + live performance metrics + real-time WebSocket streaming) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-10 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 ✅ (paper trading + execution costs + live metrics + WebSocket; broker/multi-user deferred) · Phase 6 ✅ (educational wiki at `/wiki/`) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -31,8 +31,8 @@ add/remove assets from the dashboard.
 | NLP         | HuggingFace Transformers — ProsusAI/finbert (sentiment) + facebook/bart-large-mnli (zero-shot theme categorization, opt-in), PyTorch (CPU-only) |
 | Data feed   | yfinance (prices + per-ticker news) + feedparser (curated quality RSS, linked to assets via NER) |
 | TA / math   | pandas + numpy (pure-pandas EMA/RSI/MACD + backtester; Backtrader/pandas-ta avoided — numpy 2.x) |
-| Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned) |
-| Real-time   | Django Channels 4 + channels-redis + Daphne (ASGI) — WebSocket portfolio stream (Phase 5) |
+| Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned). Opens on a home/overview ("Panoramica": market summary via `/api/summary/`, latest alerts, Top Opportunità, Paper Trading); asset detail (chart, correlation, news, sandbox) shown on click |
+| Real-time   | Django Channels 4 + channels-redis + Daphne (ASGI) — WebSocket portfolio stream (Phase 5). redis-py pinned `>=5,<6`: dalla 6.x il read-timeout socket scatta sui comandi bloccanti (BZPOPMIN, 5s) di channels-redis → TimeoutError e drop del WebSocket ogni 5s |
 | Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat); web serves ASGI via Daphne |
 
 ---
@@ -84,8 +84,10 @@ FinanceBuddy/
     ├── management/commands/
     │   ├── bootstrap_assets.py  # Phase 1 idempotent seeding command
     │   └── data_status.py       # On-demand data-freshness report (prices/news/forward-impact)
-    ├── tests/                 # Unit tests (test_indicators.py, test_backtest.py …)
-    └── templates/core/dashboard.html
+    ├── tests/                 # Unit tests (test_indicators.py, test_backtest.py, test_wiki.py …)
+    └── templates/core/
+        ├── dashboard.html     # Single-page dashboard (links into the wiki via ℹ︎ anchors)
+        └── wiki.html          # Phase 6: educational Knowledge Base (/wiki/, KaTeX, search)
 
 logs/                          # Rotating ingestion log (gitignored); written by both the
                                # local runserver and the celery_worker container (shared via the
@@ -177,10 +179,13 @@ web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (ch
    /api/backtest/    → backtest.run_backtest(prices, news, params) → equity curve + trades + signals + metrics
    /api/news/        → reads NewsArticle (filter ?asset= &category= &relevant= &quality=verified|premium|quality|unverified)
    /api/ranking/     → reads AssetScore leaderboard (?limit= &order=top|bottom)
+   /api/summary/     → home/overview snapshot: assets tracked, news 24h, avg sentiment 7d, alerts 7d, best/worst score (windows in constants.py)
    /api/portfolio/   → paper portfolio snapshot (cash, positions M2M, P&L, return, performance)
    /api/portfolio/history/ → PortfolioSnapshot equity curve
    ws/portfolio/     → WebSocket: same snapshot pushed live after each paper cycle
    /api/alerts/      → reads fired Alert rows
+   /wiki/            → static educational wiki page (WikiView; deep-link anchors
+                       are the targets of the dashboard's contextual ℹ︎ icons)
 beat ─► compute_rankings → ranking.rank_assets(per-asset sentiment+technical+momentum) → AssetScore upsert
 beat ─► run_paper_trading → paper_trading (latest_signal + position_size) → realtime.broadcast (WS push)
    sells first (sentiment reversal / stop-loss) → buys strongest signals with cash
@@ -358,7 +363,7 @@ analyzes the missed window, independent of Celery beat timing.
     persist it, and refresh on a schedule. Also still open in Phase 4: Reddit
     ingestion (PRAW), model-based NER for unknown orgs, local FinBERT fine-tuning;
     Twitter/X deferred on API cost.
-- **Phase 5 — Paper/live trading 🚧 (in progress)**
+- **Phase 5 — Paper/live trading ✅ (closed 2026-06-10 — broker & multi-user deferred)**
   - ✅ **Virtual paper-trading portfolio (foundation).** A local, no-risk
     portfolio running the Phase 3 sentiment strategy forward in time.
     [core/paper_trading.py](core/paper_trading.py) holds the pure engine
@@ -399,12 +404,28 @@ analyzes the missed window, independent of Celery beat timing.
     ([test_paper_trading_tasks.py](core/tests/test_paper_trading_tasks.py)) +
     consumer tests ([test_consumers.py](core/tests/test_consumers.py));
     149 tests total.
-  - ⏭ Next (optional): Alpaca paper-broker API (encrypted keys via
-    `cryptography.fernet`) and multi-user portfolios.
-    *(Note: Alpaca is optional — the internal simulation models costs + metrics on
-    its own; the broker is only the on-ramp to live money, which carries real risk
-    and stays out of scope for now.)*
-- Phase 6 — Knowledge Base / Wiki didattica (`/wiki`, KaTeX, tooltip contestuali) · *planned (final)*
+  - ⏭ Deferred (phase closed without them, 2026-06-10): Alpaca paper-broker API
+    and multi-user portfolios. Rationale: the internal simulation already models
+    costs + metrics, so a paper broker adds no simulation value; a broker is only
+    the on-ramp to live money (real risk, out of scope), and the stack runs
+    on-demand/intermittently — incompatible with a live broker bot. Multi-user
+    only matters alongside per-user broker keys (single-user self-hosted → YAGNI).
+    Revisit both only if/when going live with real money.
+- **Phase 6 — Knowledge Base / educational wiki ✅**
+  - ✅ `/wiki/` route (`WikiView`, static template
+    [core/templates/core/wiki.html](core/templates/core/wiki.html)) with the
+    dashboard's design system (Tailwind glassmorphism, Outfit/Inter, Alpine).
+  - ✅ 7 themed sections + alphabetical glossary, ~40 entries; every entry follows
+    the fixed structure *definizione → spiegazione semplice → esempio numerico →
+    formula (KaTeX) → dove lo vedi nell'app*, Italian text with the standard
+    English term alongside.
+  - ✅ Sidebar index with scroll-tracked active section, live text search
+    (filters entries + sections), deep-linkable anchors (e.g. `/wiki/#sharpe`).
+  - ✅ Contextual ℹ︎ deep-links from the dashboard (Top Opportunità, Paper
+    Trading, Equity Curve, Performance, price chart/EMA, RSI, MACD, correlation
+    matrix, Strategy Sandbox) + a Wiki button in the sidebar header.
+  - ✅ Smoke tests pin the route, template, and the anchor ids the dashboard
+    links to ([core/tests/test_wiki.py](core/tests/test_wiki.py)).
 
 ---
 
