@@ -242,3 +242,78 @@ def run_backtest(price_rows, news_items, *,
         'signals': signals,
         'insufficient_data': False,
     }
+
+
+# -- Grid search ("Ottimizza") ------------------------------------------------
+
+def _summary_metrics(result) -> dict:
+    """Compact metric tile for one grid cell (full result is too heavy)."""
+    m = result['metrics']
+    return {
+        'total_return_pct': m['total_return_pct'],
+        'alpha_pct': m['alpha_pct'],
+        'sharpe_ratio': m['sharpe_ratio'],
+        'max_drawdown_pct': m['max_drawdown_pct'],
+        'win_rate_pct': m['win_rate_pct'],
+        'num_trades': m['num_trades'],
+    }
+
+
+def grid_search(price_rows, news_items, *,
+                buy_thresholds=constants.BACKTEST_GRID_BUY_THRESHOLDS,
+                sell_thresholds=constants.BACKTEST_GRID_SELL_THRESHOLDS,
+                stop_losses=constants.BACKTEST_GRID_STOP_LOSSES,
+                windows=constants.BACKTEST_GRID_WINDOWS,
+                train_fraction=constants.BACKTEST_GRID_TRAIN_FRACTION,
+                top_n=constants.BACKTEST_GRID_TOP_N,
+                initial_capital=constants.BACKTEST_INITIAL_CAPITAL) -> dict:
+    """Try every parameter combination with a train/test split (anti-overfit).
+
+    Prices are split chronologically: the first `train_fraction` of days is the
+    TRAIN segment, the rest is TEST. Combinations are ranked by **train Sharpe**
+    but each result also carries its TEST metrics — a combo that shines in
+    train and collapses in test was just memorising the past. News are passed
+    whole to both segments: the rolling sentiment is trailing-only, so this
+    leaks nothing from the future.
+    """
+    rows = sorted(list(price_rows), key=lambda r: r[0])
+    split = int(len(rows) * train_fraction)
+    train_rows, test_rows = rows[:split], rows[split:]
+    news = list(news_items)
+
+    combos = [
+        dict(buy_threshold=b, sell_threshold=s, stop_loss_pct=sl,
+             sentiment_window_days=w)
+        for b in buy_thresholds for s in sell_thresholds
+        for sl in stop_losses for w in windows
+        if s < b  # an exit threshold at/above the entry threshold is nonsense
+    ][:constants.BACKTEST_GRID_MAX_COMBOS]
+
+    results, tested = [], 0
+    for combo in combos:
+        train = run_backtest(train_rows, news, initial_capital=initial_capital, **combo)
+        if train['insufficient_data'] or train['metrics'] is None:
+            continue
+        tested += 1
+        test = run_backtest(test_rows, news, initial_capital=initial_capital, **combo)
+        results.append({
+            'params': combo,
+            'train': _summary_metrics(train),
+            'test': (_summary_metrics(test)
+                     if not test['insufficient_data'] else None),
+        })
+
+    results.sort(
+        key=lambda r: (r['train']['sharpe_ratio'] is not None,
+                       r['train']['sharpe_ratio'] or 0.0),
+        reverse=True,
+    )
+
+    return {
+        'combos_tested': tested,
+        'train_days': len(_build_close_by_date(train_rows)),
+        'test_days': len(_build_close_by_date(test_rows)),
+        'split_date': _iso(rows[split][0]) if rows and 0 < split < len(rows) else None,
+        'results': results[:top_n],
+        'insufficient_data': tested == 0,
+    }

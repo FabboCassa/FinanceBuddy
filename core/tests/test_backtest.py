@@ -172,3 +172,51 @@ class BacktestEngineTests(SimpleTestCase):
             stop_loss_pct=0, sentiment_window_days=1,
         )
         self.assertLessEqual(result['metrics']['max_drawdown_pct'], 0)
+
+
+class GridSearchTests(SimpleTestCase):
+    def _history(self, n_days=40):
+        """Rising series with periodic positive/negative news → real trades."""
+        closes = [100 + i for i in range(n_days)]
+        news = []
+        for d in range(1, n_days - 1, 8):
+            news.append(_news(d, 0.9))       # entry signal
+            news.append(_news(d + 4, -0.9))  # exit signal
+        return _daily_prices(closes), news
+
+    def test_insufficient_history_flagged(self):
+        prices = _daily_prices([100, 101, 102])  # train slice < BACKTEST_MIN_DAYS
+        result = backtest.grid_search(prices, [])
+        self.assertTrue(result['insufficient_data'])
+        self.assertEqual(result['results'], [])
+
+    def test_returns_ranked_top_n_with_train_and_test(self):
+        prices, news = self._history()
+        result = backtest.grid_search(prices, news)
+        self.assertFalse(result['insufficient_data'])
+        self.assertGreater(result['combos_tested'], 0)
+        self.assertLessEqual(len(result['results']), constants.BACKTEST_GRID_TOP_N)
+        sharpes = [r['train']['sharpe_ratio'] or 0.0 for r in result['results']
+                   if r['train']['sharpe_ratio'] is not None]
+        self.assertEqual(sharpes, sorted(sharpes, reverse=True))
+        first = result['results'][0]
+        self.assertIn('params', first)
+        self.assertIn('train', first)
+        self.assertIn('test', first)
+
+    def test_nonsense_combos_excluded(self):
+        prices, news = self._history()
+        result = backtest.grid_search(
+            prices, news,
+            buy_thresholds=(0.3,), sell_thresholds=(0.3, 0.5), stop_losses=(0.03,),
+            windows=(3,),
+        )
+        # sell >= buy is filtered out entirely → nothing to test
+        self.assertEqual(result['combos_tested'], 0)
+
+    def test_split_is_chronological(self):
+        prices, news = self._history(n_days=50)
+        result = backtest.grid_search(prices, news, train_fraction=0.7)
+        self.assertEqual(result['train_days'], 35)
+        self.assertEqual(result['test_days'], 15)
+        self.assertIsNotNone(result['split_date'])

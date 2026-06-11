@@ -34,6 +34,12 @@ if [ "${RUN_MIGRATIONS:-False}" = "True" ]; then
   python manage.py migrate --noinput
 fi
 
+# --- Collect static files (admin assets for WhiteNoise; web service only) ---
+if [ "${RUN_COLLECTSTATIC:-False}" = "True" ]; then
+  echo "[entrypoint] Collecting static files..."
+  python manage.py collectstatic --noinput
+fi
+
 # --- Phase 1 bootstrap: seed assets + backfill history ----------------------
 if [ "${RUN_BOOTSTRAP:-False}" = "True" ]; then
   echo "[entrypoint] Bootstrapping seed data..."

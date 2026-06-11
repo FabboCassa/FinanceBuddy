@@ -85,7 +85,14 @@ graph TD
 > ingeriscono **25 feed RSS di testate di qualità in 11 paesi** (US/UK/DE/FR/IT/NL/ES/JP/HK/SG/IN — CNBC, FT,
 > Economist, NYT, Guardian, Telegraph, BBC, Handelsblatt, FAZ, Spiegel, Le Monde, Il Sole 24 Ore, ANSA, Corriere,
 > NRC, El País, Expansión, Nikkei, Japan Times, SCMP, Straits Times, Economic Times…), tutti validati dal vivo,
-> attribuendo ogni notizia agli asset citati e taggandone il tier.
+> attribuendo ogni notizia agli asset citati e taggandone il tier. Aggiunti poi (2026-06-11)
+> l'**analisi di impatto per categoria** ([core/category_impact.py](core/category_impact.py) +
+> `/api/category-impact/` + card "Quali temi muovono i prezzi" in home) — misura con le reazioni
+> di mercato reali quali temi contano, il ponte verso il gradino 3 — e il **calendario earnings**
+> (`Asset.next_earnings_date` via yfinance, task giornaliero a rotazione, badge "Earnings tra Xg"
+> nel dettaglio asset). EDGAR/SEC valutato e rimandato: i feed Atom contengono solo metadati
+> ("8-K — Apple Inc"), inutili per FinBERT e inquinanti per le medie di sentiment; ha senso solo
+> con una pipeline dedicata ai filing, futura.
 >
 > ⚠️ **PROMEMORIA — gradino 3 DA FARE (rimandato, non completato).** Il
 > **classificatore auto-supervisionato** addestrato sull'impatto di prezzo reale

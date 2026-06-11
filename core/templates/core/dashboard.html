@@ -229,6 +229,15 @@
                             </div>
                             <span class="h-6 w-px bg-slate-800"></span>
                             <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-brand-950 text-brand-400 border border-brand-800/40" x-text="activeAsset.asset_type"></span>
+                            <!-- Earnings calendar badge (Phase 4): imminent dates stand out -->
+                            <template x-if="activeAsset.days_to_earnings !== null && activeAsset.days_to_earnings !== undefined && activeAsset.days_to_earnings >= 0">
+                                <span class="px-2.5 py-1 text-xs font-semibold rounded-full border flex items-center gap-1.5"
+                                      :class="activeAsset.days_to_earnings <= 3 ? 'bg-accent-amber/10 text-accent-amber border-accent-amber/30' : 'bg-slate-900 text-slate-400 border-slate-700/50'"
+                                      :title="'Prossima trimestrale: ' + activeAsset.next_earnings_date + ' — i giorni di earnings sono spesso i più volatili'">
+                                    <i class="fa-solid fa-calendar-day"></i>
+                                    <span x-text="activeAsset.days_to_earnings === 0 ? 'Earnings OGGI' : (activeAsset.days_to_earnings <= 3 ? 'Earnings tra ' + activeAsset.days_to_earnings + 'g' : 'Earnings ' + activeAsset.next_earnings_date)"></span>
+                                </span>
+                            </template>
                         </div>
                     </template>
                 </div>
@@ -387,6 +396,65 @@
                             </template>
                         </div>
                     </div>
+                </div>
+
+                <!-- ================= CATEGORY IMPACT (Phase 4: which themes move prices?) ================= -->
+                <div x-show="!activeAsset" class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
+                        <div>
+                            <h2 class="text-lg font-bold font-outfit text-white tracking-tight flex items-center gap-2">
+                                <i class="fa-solid fa-newspaper text-brand-400"></i> Quali temi muovono i prezzi
+                                <a href="/wiki/#forward-return" class="text-slate-500 hover:text-brand-500 transition-colors" title="Cos'è il rendimento forward? Apri la wiki"><i class="fa-regular fa-circle-question text-xs"></i></a>
+                            </h2>
+                            <p class="text-xs text-slate-400">Reazione media del prezzo dopo le notizie, per tema — |Δ| medio a 1/3/7 giorni e quota di notizie "mosse" (|Δ| ≥ <span x-text="categoryImpact ? categoryImpact.move_threshold_pct + '%' : '2%'"></span> a 3g). La tabella matura con lo storico.</p>
+                        </div>
+                        <button @click="loadCategoryImpact()" class="text-slate-500 hover:text-slate-300 p-1" title="Aggiorna">
+                            <i class="fa-solid fa-arrows-rotate text-xs" :class="loadingCategoryImpact ? 'animate-spin' : ''"></i>
+                        </button>
+                    </div>
+
+                    <template x-if="!categoryImpact || categoryImpact.categories.length === 0">
+                        <div class="text-center py-6 text-slate-500 text-xs">
+                            Ancora pochi dati: l'impatto forward si calcola man mano che i prezzi successivi alle notizie diventano disponibili.
+                        </div>
+                    </template>
+
+                    <template x-if="categoryImpact && categoryImpact.categories.length > 0">
+                        <div class="overflow-x-auto mt-3">
+                            <table class="w-full text-xs">
+                                <thead>
+                                    <tr class="text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-800/60">
+                                        <th class="text-left font-semibold py-1.5">Tema</th>
+                                        <th class="text-right font-semibold py-1.5">News</th>
+                                        <th class="text-right font-semibold py-1.5">|Δ| 1g</th>
+                                        <th class="text-right font-semibold py-1.5">|Δ| 3g</th>
+                                        <th class="text-right font-semibold py-1.5">|Δ| 7g</th>
+                                        <th class="text-right font-semibold py-1.5">Δ medio 3g</th>
+                                        <th class="text-right font-semibold py-1.5">Mosse ≥soglia</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="c in categoryImpact.categories" :key="c.category">
+                                        <tr class="border-b border-slate-800/40">
+                                            <td class="py-1.5 text-slate-200">
+                                                <span x-text="c.label"></span>
+                                                <span x-show="c.low_sample" class="ml-1 text-[9px] font-bold px-1 py-0.5 rounded bg-accent-amber/10 text-accent-amber border border-accent-amber/20" title="Campione piccolo: statistica poco affidabile">pochi dati</span>
+                                            </td>
+                                            <td class="py-1.5 text-right text-slate-400" x-text="c.n_articles"></td>
+                                            <td class="py-1.5 text-right text-slate-300" x-text="c.horizons['1'] ? c.horizons['1'].mean_abs.toFixed(2) + '%' : '—'"></td>
+                                            <td class="py-1.5 text-right font-semibold text-white" x-text="c.horizons['3'] ? c.horizons['3'].mean_abs.toFixed(2) + '%' : '—'"></td>
+                                            <td class="py-1.5 text-right text-slate-300" x-text="c.horizons['7'] ? c.horizons['7'].mean_abs.toFixed(2) + '%' : '—'"></td>
+                                            <td class="py-1.5 text-right font-semibold"
+                                                :class="c.horizons['3'] && c.horizons['3'].mean >= 0 ? 'text-accent-emerald' : 'text-accent-rose'"
+                                                x-text="c.horizons['3'] ? (c.horizons['3'].mean >= 0 ? '+' : '') + c.horizons['3'].mean.toFixed(2) + '%' : '—'"></td>
+                                            <td class="py-1.5 text-right text-slate-300" x-text="c.horizons['3'] ? c.horizons['3'].mover_rate.toFixed(0) + '%' : '—'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                            <p class="text-[10px] text-slate-600 mt-2">Reazione ≠ causa: una correlazione non dimostra che la notizia abbia mosso il prezzo (<a href="/wiki/#causa-effetto" class="underline decoration-dotted hover:text-brand-500">vedi wiki</a>).</p>
+                        </div>
+                    </template>
                 </div>
 
                 <!-- ================= PAPER TRADING (Phase 5: virtual portfolio) ================= -->
@@ -895,9 +963,55 @@
                             <i class="fa-solid" :class="runningBacktest ? 'fa-circle-notch animate-spin' : 'fa-play'"></i>
                             <span x-text="runningBacktest ? 'Simulazione...' : 'Esegui Backtest'"></span>
                         </button>
+                        <button @click="runOptimize()" :disabled="optimizing"
+                                class="px-4 py-2.5 bg-slate-800/70 hover:bg-slate-700 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-200 transition-all flex items-center gap-2"
+                                title="Prova automaticamente molte combinazioni di parametri (train/test split anti-overfitting)">
+                            <i class="fa-solid" :class="optimizing ? 'fa-circle-notch animate-spin' : 'fa-wand-magic-sparkles'"></i>
+                            <span x-text="optimizing ? 'Ottimizzo...' : 'Ottimizza'"></span>
+                        </button>
                         <span x-show="backtestResult && backtestResult.insufficient_data" class="text-xs text-accent-amber">
                             <i class="fa-solid fa-triangle-exclamation"></i> Storico insufficiente per simulare.
                         </span>
+                    </div>
+
+                    <!-- Grid search results -->
+                    <div x-show="optimizeResult" class="relative z-10 mb-5">
+                        <template x-if="optimizeResult && optimizeResult.insufficient_data">
+                            <p class="text-xs text-accent-amber"><i class="fa-solid fa-triangle-exclamation"></i> Storico insufficiente per la grid search.</p>
+                        </template>
+                        <template x-if="optimizeResult && !optimizeResult.insufficient_data">
+                            <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
+                                <p class="text-xs font-bold text-slate-300 mb-1">
+                                    Migliori combinazioni <span class="text-slate-500 font-normal" x-text="'(' + optimizeResult.combos_tested + ' testate — train ' + optimizeResult.train_days + 'g / test ' + optimizeResult.test_days + 'g, split ' + optimizeResult.split_date + ')'"></span>
+                                </p>
+                                <p class="text-[10px] text-slate-500 mb-2">Classificate sullo Sharpe del periodo di <em>train</em>; la colonna <em>test</em> è la prova fuori campione — se crolla lì, era overfitting. Click su una riga per applicare i parametri.</p>
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-800/60">
+                                            <th class="text-left font-semibold py-1">Buy / Sell / Stop / Finestra</th>
+                                            <th class="text-right font-semibold py-1">Sharpe train</th>
+                                            <th class="text-right font-semibold py-1">Ritorno train</th>
+                                            <th class="text-right font-semibold py-1">Sharpe test</th>
+                                            <th class="text-right font-semibold py-1">Ritorno test</th>
+                                            <th class="text-right font-semibold py-1">Trade</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="(r, i) in optimizeResult.results" :key="i">
+                                            <tr class="border-b border-slate-800/40 cursor-pointer hover:bg-slate-800/40 transition-colors"
+                                                @click="applyOptimizedParams(r.params)" title="Applica questi parametri alla sandbox">
+                                                <td class="py-1.5 text-slate-200" x-text="r.params.buy_threshold + ' / ' + r.params.sell_threshold + ' / ' + (r.params.stop_loss_pct * 100).toFixed(0) + '% / ' + r.params.sentiment_window_days + 'g'"></td>
+                                                <td class="py-1.5 text-right font-semibold text-white" x-text="r.train.sharpe_ratio != null ? r.train.sharpe_ratio.toFixed(2) : '—'"></td>
+                                                <td class="py-1.5 text-right" :class="r.train.total_return_pct >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="(r.train.total_return_pct >= 0 ? '+' : '') + r.train.total_return_pct.toFixed(1) + '%'"></td>
+                                                <td class="py-1.5 text-right font-semibold" :class="r.test && r.test.sharpe_ratio != null && r.test.sharpe_ratio < 0 ? 'text-accent-rose' : 'text-slate-200'" x-text="r.test && r.test.sharpe_ratio != null ? r.test.sharpe_ratio.toFixed(2) : '—'"></td>
+                                                <td class="py-1.5 text-right" :class="r.test && r.test.total_return_pct >= 0 ? 'text-accent-emerald' : 'text-accent-rose'" x-text="r.test ? (r.test.total_return_pct >= 0 ? '+' : '') + r.test.total_return_pct.toFixed(1) + '%' : '—'"></td>
+                                                <td class="py-1.5 text-right text-slate-400" x-text="r.train.num_trades + (r.test ? ' / ' + r.test.num_trades : '')"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </template>
                     </div>
 
                     <!-- Metrics + equity curve -->
@@ -950,6 +1064,9 @@
                 ranking: [],
                 rankingOrder: 'top',
                 loadingRanking: false,
+                // Phase 4: per-category forward-impact analysis (home card)
+                categoryImpact: null,
+                loadingCategoryImpact: false,
                 // Home/overview ("Panoramica"): market summary + latest global alerts.
                 summary: null,
                 globalAlerts: [],
@@ -999,6 +1116,9 @@
                 runningBacktest: false,
                 backtestResult: null,
                 backtestMetricCards: [],
+                // Grid search ("Ottimizza"): top param combos with train/test metrics
+                optimizing: false,
+                optimizeResult: null,
                 equityChart: null,
                 newsMarkers: [],
                 signalMarkers: [],
@@ -1134,6 +1254,7 @@
                         .then(res => res.json())
                         .then(data => { this.summary = data; })
                         .catch(err => console.error("Error loading summary:", err));
+                    this.loadCategoryImpact();
                     fetch('/api/alerts/')
                         .then(res => res.json())
                         .then(data => { this.globalAlerts = Array.isArray(data) ? data : (data.results || []); })
@@ -1150,6 +1271,15 @@
                 },
 
                 // Phase 4: load the composite opportunity leaderboard.
+                loadCategoryImpact() {
+                    this.loadingCategoryImpact = true;
+                    fetch('/api/category-impact/')
+                        .then(res => res.json())
+                        .then(data => { this.categoryImpact = data; })
+                        .catch(err => console.error("Error loading category impact:", err))
+                        .finally(() => { this.loadingCategoryImpact = false; });
+                },
+
                 loadRanking() {
                     this.loadingRanking = true;
                     fetch(`/api/ranking/?limit=20&order=${this.rankingOrder}`)
@@ -1174,6 +1304,7 @@
                     // Reset Phase 3 sandbox state for the newly selected asset.
                     this.backtestResult = null;
                     this.backtestMetricCards = [];
+                    this.optimizeResult = null;
                     this.signalMarkers = [];
                     if (this.equityChart) { this.equityChart.remove(); this.equityChart = null; }
                     this.loadChartAndNews();
@@ -1599,6 +1730,25 @@
                             console.error('Backtest error:', err);
                             this.runningBacktest = false;
                         });
+                },
+
+                runOptimize() {
+                    if (!this.activeAsset) return;
+                    this.optimizing = true;
+                    fetch(`/api/backtest/optimize/?asset=${encodeURIComponent(this.activeAsset.symbol)}`)
+                        .then(res => res.json())
+                        .then(data => { this.optimizeResult = data; })
+                        .catch(err => console.error('Optimize error:', err))
+                        .finally(() => { this.optimizing = false; });
+                },
+
+                applyOptimizedParams(p) {
+                    // Copy a grid-search row into the sandbox inputs and re-run.
+                    this.backtest.buy_threshold = p.buy_threshold;
+                    this.backtest.sell_threshold = p.sell_threshold;
+                    this.backtest.stop_loss_display = p.stop_loss_pct * 100;
+                    this.backtest.sentiment_window_days = p.sentiment_window_days;
+                    this.runBacktest();
                 },
 
                 buildBacktestMetricCards(m) {

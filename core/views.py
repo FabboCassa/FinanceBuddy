@@ -353,6 +353,75 @@ class DashboardView(TemplateView):
     template_name = 'core/dashboard.html'
 
 
+class BacktestOptimizeView(APIView):
+    """
+    Phase 3 endpoint: grid-search the sandbox strategy parameters for one asset.
+
+    GET /api/backtest/optimize/?asset=<symbol>
+
+    Tries the default parameter grid (constants.BACKTEST_GRID_*) with a
+    chronological train/test split and returns the top combinations ranked by
+    train Sharpe, each with its out-of-sample (test) metrics alongside so
+    overfitted combos are visible at a glance.
+    """
+
+    def get(self, request):
+        symbol = request.query_params.get('asset')
+        if not symbol:
+            return Response(
+                {'detail': "Query param 'asset' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        prices = (PriceData.objects
+                  .filter(asset_id=symbol)
+                  .order_by('timestamp')
+                  .values_list('timestamp', 'close'))
+        news = list(NewsArticle.objects
+                    .filter(asset_id=symbol, sentiment_score__isnull=False)
+                    .values('timestamp', 'sentiment_score'))
+
+        return Response(backtest.grid_search(prices, news))
+
+
+class CategoryImpactView(APIView):
+    """
+    Phase 4 endpoint: which news themes actually move prices?
+
+    GET /api/category-impact/[?asset=SYMBOL] → per-category forward-impact
+    stats (mean |return|, signed mean, mover rate at +1/3/7d), computed from
+    the `category` × `forward_impact` fields ingest already maintains. The
+    table matures as price history resolves the forward horizons.
+    """
+
+    def get(self, request):
+        from core.category_impact import category_impact
+        qs = NewsArticle.objects.filter(forward_impact__isnull=False)
+        symbol = request.query_params.get('asset')
+        if symbol:
+            qs = qs.filter(asset_id=symbol)
+        rows = qs.values_list('category', 'forward_impact')
+        return Response({
+            'horizons': list(constants.FORWARD_IMPACT_HORIZONS_DAYS),
+            'move_threshold_pct': constants.CATEGORY_IMPACT_MOVE_THRESHOLD_PCT,
+            'total_articles': qs.count(),
+            'categories': category_impact(rows),
+        })
+
+
+def healthz(request):
+    """
+    Unauthenticated liveness probe for uptime monitors (no DRF overhead).
+
+    GET /healthz → 200 {"database": "ok", "redis": "ok"} when everything is
+    reachable, 503 with the failing component otherwise.
+    """
+    from django.http import JsonResponse
+    from core.monitoring import health_status
+    checks, all_ok = health_status()
+    return JsonResponse(checks, status=200 if all_ok else 503)
+
+
 class WikiView(TemplateView):
     """
     Phase 6: educational Knowledge Base / wiki.

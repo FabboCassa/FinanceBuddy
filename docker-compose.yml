@@ -1,12 +1,22 @@
-# Shared app environment (DRY via YAML anchor). Per-service overrides extend it.
-# Secrets are read from the gitignored .env via ${VAR:-default} interpolation, so
-# this committed file never contains real credentials. Set real values in .env.
+# PRODUCTION-SAFE base compose. Local development conveniences (runserver,
+# DB/Redis ports on the host, DEBUG default) live in docker-compose.override.yml,
+# which `docker compose up` merges automatically on a dev machine.
+#
+#   dev    : docker compose up --build                      (base + override)
+#   server : docker compose -f docker-compose.yml up -d --build   (base only)
+#
+# Shared app environment (DRY via YAML anchor). Secrets are read from the
+# gitignored .env via ${VAR} interpolation, so this committed file never
+# contains real credentials. DB_PASSWORD is REQUIRED (no insecure default).
 x-app-env: &app-env
-  DEBUG: "${DEBUG:-True}"
-  SECRET_KEY: "${SECRET_KEY:-django-insecure-dev-only-change-me}"
+  DEBUG: "${DEBUG:-False}"
+  SECRET_KEY: "${SECRET_KEY:-}"
+  ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1}"
+  CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
+  SECURE_COOKIES: "${SECURE_COOKIES:-False}"
   DB_NAME: "${DB_NAME:-finance_buddy}"
   DB_USER: "${DB_USER:-postgres}"
-  DB_PASSWORD: "${DB_PASSWORD:-postgres_pwd}"
+  DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD must be set in .env (no default for safety)}"
   DB_HOST: db
   DB_PORT: "5432"
   REDIS_URL: redis://redis:6379/0
@@ -22,67 +32,96 @@ x-app-env: &app-env
 
 x-app-build: &app-build
   build: .
+  restart: unless-stopped
   volumes:
     - .:/app
     - hf_cache:/models/huggingface
   depends_on:
-    - db
-    - redis
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
   db:
     image: postgres:15-alpine
     container_name: fb_db
+    restart: unless-stopped
+    mem_limit: 2g
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
       - POSTGRES_DB=${DB_NAME:-finance_buddy}
       - POSTGRES_USER=${DB_USER:-postgres}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres_pwd}
-    ports:
-      - "5435:5432"
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set in .env (no default for safety)}
+    # No host port mapping here: containers reach Postgres on the internal
+    # network. The dev-only 5435 mapping lives in docker-compose.override.yml.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-finance_buddy}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   redis:
     image: redis:7-alpine
     container_name: fb_redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    mem_limit: 512m
+    # No host port mapping here (dev-only 6379 mapping in the override file).
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   # Web is the single owner of migrations + Phase 1 bootstrap on startup.
+  # Production server: Daphne (ASGI) — serves HTTP + the ws/portfolio/ WebSocket.
   web:
     <<: *app-build
     container_name: fb_web
-    command: python manage.py runserver 0.0.0.0:8000
-    # Host 8001 → container 8000: leaves host 8000 free for a local PyCharm runserver,
-    # so the containerized web and the local dev server can run side by side.
+    mem_limit: 2g
+    command: daphne -b 0.0.0.0 -p 8000 finance_buddy.asgi:application
+    # Host 8001 → container 8000. On the server nothing exposes this publicly:
+    # the cloud firewall stays closed and access goes through the tailnet.
     ports:
       - "8001:8000"
     environment:
       <<: *app-env
       RUN_MIGRATIONS: "True"
       RUN_BOOTSTRAP: "True"
+      RUN_COLLECTSTATIC: "True"
 
   celery_worker:
     <<: *app-build
     container_name: fb_celery_worker
+    # FinBERT (+ optional zero-shot NLI) lives here: generous cap, but a cap —
+    # an OOM kills this container only, not the whole VM.
+    mem_limit: 8g
     command: celery -A finance_buddy worker --loglevel=info
     environment:
       <<: *app-env
     depends_on:
-      - db
-      - redis
-      - web
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
 
   celery_beat:
     <<: *app-build
     container_name: fb_celery_beat
+    mem_limit: 512m
     command: celery -A finance_buddy beat --loglevel=info
     environment:
       <<: *app-env
     depends_on:
-      - db
-      - redis
-      - web
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
 
 volumes:
   postgres_data:

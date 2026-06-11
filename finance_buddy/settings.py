@@ -18,12 +18,42 @@ if env_path.exists():
                 key, val = line.split('=', 1)
                 os.environ.setdefault(key.strip(), val.strip())
 
-# Quick-start development settings - unsuitable for production
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-highly-secret-dev-key-12345')
+# Security-hardened defaults: production-safe unless explicitly overridden.
+# Local dev gets DEBUG=True from .env / docker-compose.override.yml.
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        # Dev-only fallback; never used when DEBUG=False.
+        SECRET_KEY = 'django-insecure-dev-only-do-not-use-in-prod'
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            'SECRET_KEY must be set in the environment when DEBUG=False '
+            '(generate one: python -c "from django.core.management.utils '
+            'import get_random_secret_key as g; print(g())")'
+        )
 
-ALLOWED_HOSTS = ['*']
+# Comma-separated env list, e.g. "fb-vm.tailnet-xyz.ts.net,localhost".
+ALLOWED_HOSTS = [
+    h.strip() for h in
+    os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+] if not DEBUG else ['*']
+
+# Needed for POSTs when served over HTTPS (e.g. tailscale serve), e.g.
+# "https://fb-vm.tailnet-xyz.ts.net". Empty → none.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in
+    os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
+    if o.strip()
+]
+
+# Enable when the app is reached over HTTPS only (tailscale serve / reverse proxy).
+SECURE_COOKIES = os.environ.get('SECURE_COOKIES', 'False') == 'True'
+SESSION_COOKIE_SECURE = SECURE_COOKIES
+CSRF_COOKIE_SECURE = SECURE_COOKIES
 
 # Application definition
 INSTALLED_APPS = [
@@ -47,6 +77,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise: serve collected static files (admin CSS/JS) from Daphne in
+    # production, where DEBUG=False disables the dev static handler.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -95,7 +128,7 @@ if 'test' in sys.argv:
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 DB_NAME = os.environ.get('DB_NAME', 'finance_buddy')
 DB_USER = os.environ.get('DB_USER', 'postgres')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres_pwd')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', '')  # no insecure default; set in .env
 DB_HOST = os.environ.get('DB_HOST', 'db')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 
@@ -185,6 +218,16 @@ CELERY_BEAT_SCHEDULE = {
     'run-paper-trading-every-30-min': {
         'task': 'core.tasks.run_paper_trading',
         'schedule': crontab(minute='*/30'),
+    },
+    # Server monitoring: weekly data-health report to Telegram (Mon 08:00).
+    'send-health-report-weekly': {
+        'task': 'core.tasks.send_health_report',
+        'schedule': crontab(day_of_week='mon', hour=8, minute=0),
+    },
+    # Earnings calendar: refresh a rotating slice of the universe daily (07:10).
+    'refresh-earnings-calendar-daily': {
+        'task': 'core.tasks.refresh_earnings_calendar',
+        'schedule': crontab(hour=7, minute=10),
     },
 }
 

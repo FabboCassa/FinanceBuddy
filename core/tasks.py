@@ -783,6 +783,74 @@ def check_sentiment_alerts():
     return len(fired)
 
 
+def _extract_next_earnings_date(ticker):
+    """Next earnings date from a yfinance Ticker, or None.
+
+    Handles both modern (dict with 'Earnings Date' list) and legacy (DataFrame)
+    `.calendar` shapes; any parse problem just means "unknown".
+    """
+    cal = ticker.calendar
+    dates = None
+    if isinstance(cal, dict):
+        dates = cal.get('Earnings Date')
+    elif cal is not None and hasattr(cal, 'empty') and not cal.empty:
+        # list(row) keeps pandas Timestamps (row.values would yield datetime64)
+        row = cal.loc['Earnings Date'] if 'Earnings Date' in cal.index else None
+        dates = list(row) if row is not None else None
+    if not dates:
+        return None
+    first = dates[0] if isinstance(dates, (list, tuple)) else dates
+    # datetime/Timestamp → plain date (Timestamp subclasses datetime.datetime).
+    if isinstance(first, datetime.datetime):
+        first = first.date()
+    return first if isinstance(first, datetime.date) else None
+
+
+def refresh_earnings_for_assets(assets):
+    """Update next_earnings_date for the given assets (graceful per-asset)."""
+    updated = 0
+    now = timezone.now()
+    for asset in assets:
+        try:
+            next_date = _extract_next_earnings_date(yf.Ticker(asset.symbol))
+            asset.next_earnings_date = next_date
+            updated += 1 if next_date else 0
+        except Exception as exc:
+            logger.warning("Earnings calendar fetch failed for %s: %s", asset.symbol, exc)
+        asset.earnings_checked_at = now
+        asset.save(update_fields=['next_earnings_date', 'earnings_checked_at', 'updated_at'])
+    return updated
+
+
+@shared_task
+def refresh_earnings_calendar():
+    """Daily task (Phase 4): refresh next-earnings dates, oldest-checked first.
+
+    yfinance calendar lookups are one request per ticker, so each run covers a
+    rotating EARNINGS_REFRESH_BATCH slice of the universe (~a week for ~500
+    assets) instead of hammering everything at once.
+    """
+    from django.db.models import F
+    batch = list(
+        Asset.objects.order_by(
+            F('earnings_checked_at').asc(nulls_first=True)
+        )[:constants.EARNINGS_REFRESH_BATCH]
+    )
+    updated = refresh_earnings_for_assets(batch)
+    logger.info("Earnings calendar: refreshed %s assets (%s with a known date).",
+                len(batch), updated)
+    return updated
+
+
+@shared_task
+def send_health_report():
+    """Weekly task: push the data-health report to Telegram (server monitoring)."""
+    from core import monitoring
+    report = monitoring.build_health_report()
+    logger.info("Weekly health report:\n%s", report)
+    return monitoring.notify_ops(report)
+
+
 @shared_task
 def startup_catch_up():
     """Gap-recovery pipeline run once when the service comes online.

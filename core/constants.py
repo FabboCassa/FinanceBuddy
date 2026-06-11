@@ -359,3 +359,37 @@ PAPER_PRICE_LOOKBACK_DAYS = 30
 # numbers stay meaningful over weekends and low-news days.
 SUMMARY_NEWS_HOURS = 24
 SUMMARY_WINDOW_DAYS = 7
+
+# --- Operational monitoring (core/monitoring.py) ---------------------------
+# A task failing on every 30-min cycle would flood Telegram: notify at most
+# once per task within this window (errors are still always logged).
+MONITORING_FAILURE_COOLDOWN_MIN = 60
+# Newest price bar older than this many days → "stale" verdict in /healthz
+# report + weekly health message (2 covers weekends + one bad cycle).
+MONITORING_STALE_PRICE_DAYS = 2
+
+# --- Category impact analysis (Phase 4: which themes move prices?) ----------
+# An article "moved the market" when |forward return| meets this threshold (%).
+# ~2% on a daily close is comfortably above normal large-cap noise.
+CATEGORY_IMPACT_MOVE_THRESHOLD_PCT = 2.0
+# Below this many resolved articles a category's stats are flagged low-sample.
+CATEGORY_IMPACT_MIN_ARTICLES = 5
+
+# --- Backtest grid search (Phase 3 "Ottimizza") -----------------------------
+# Default parameter grid (kept small: combinations multiply fast and each cell
+# is a full backtest). Train/test split guards against picking parameters that
+# only worked in-sample (overfitting): parameters are ranked on the TRAIN
+# segment, but reported with their TEST-segment metrics alongside.
+BACKTEST_GRID_BUY_THRESHOLDS = (0.3, 0.4, 0.5, 0.6)
+BACKTEST_GRID_SELL_THRESHOLDS = (0.0, 0.1, 0.2)
+BACKTEST_GRID_STOP_LOSSES = (0.02, 0.03, 0.05)
+BACKTEST_GRID_WINDOWS = (2, 3, 5)            # sentiment window (days)
+BACKTEST_GRID_TRAIN_FRACTION = 0.7           # first 70% train, last 30% test
+BACKTEST_GRID_TOP_N = 5                      # results returned to the UI
+BACKTEST_GRID_MAX_COMBOS = 200               # hard cap (CPU guard)
+
+# --- Earnings calendar (Phase 4 data enrichment) ----------------------------
+# yfinance calendar lookups are per-ticker requests: refresh a rotating slice
+# of the universe each daily cycle instead of hammering ~500 tickers at once.
+EARNINGS_REFRESH_BATCH = 80                   # assets refreshed per daily run
+EARNINGS_SOON_DAYS = 3                        # dashboard "earnings imminenti" badge window

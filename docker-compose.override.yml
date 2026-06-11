@@ -1,0 +1,23 @@
+# DEV-ONLY overrides — merged automatically by `docker compose up` on a dev
+# machine. Production must bypass this file:
+#     docker compose -f docker-compose.yml up -d --build
+#
+# Differences vs production:
+#   - Django dev server (autoreload) instead of Daphne; still serves ASGI/WS
+#     because the 'daphne' app takes over runserver.
+#   - DEBUG forced on.
+#   - Postgres/Redis published on the host for local tools (PyCharm, redis-cli):
+#     5435 → Postgres, 6379 → Redis. NEVER do this on a public server.
+services:
+  db:
+    ports:
+      - "5435:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  web:
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      DEBUG: "True"

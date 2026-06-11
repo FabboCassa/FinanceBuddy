@@ -1,0 +1,52 @@
+# Deploy FinanceBuddy to the private VM over the tailnet.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   TAILSCALE_AUTHKEY  – ephemeral+reusable auth key (Tailscale admin → Keys).
+#                        Tag it (e.g. tag:ci) so it can't access anything else.
+#   DEPLOY_HOST        – VM hostname in the tailnet (MagicDNS, e.g. fb-vm) or
+#                        its 100.x.y.z Tailscale IP.
+#   DEPLOY_USER        – SSH user on the VM (e.g. ubuntu).
+#   DEPLOY_SSH_KEY     – PRIVATE half of a dedicated ed25519 deploy key
+#                        (ssh-keygen -t ed25519 -C github-deploy). Public half
+#                        goes in ~/.ssh/authorized_keys on the VM. Never reuse
+#                        your personal key.
+#
+# The VM is expected to have the repo cloned at ~/FinanceBuddy with a valid
+# production .env already in place (.env is NOT managed by this workflow).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # manual "Run workflow" button
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never kill a deploy halfway
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Join the tailnet (ephemeral node)
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Deploy over SSH (pull + rebuild + restart)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 25m
+          script: |
+            set -e
+            cd ~/FinanceBuddy
+            git fetch origin main
+            git reset --hard origin/main
+            # Production compose only — never the dev override:
+            docker compose -f docker-compose.yml up -d --build
+            docker image prune -f
+            docker compose -f docker-compose.yml ps

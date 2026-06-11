@@ -5,7 +5,7 @@ from core.views import (
     AssetViewSet, PriceDataViewSet, NewsArticleViewSet, AlertViewSet,
     IndicatorsView, CorrelationView, BacktestView, RankingView,
     MarketSummaryView, PortfolioView, PortfolioHistoryView, DashboardView,
-    WikiView,
+    WikiView, healthz, CategoryImpactView, BacktestOptimizeView,
 )
 
 router = DefaultRouter()
@@ -19,11 +19,14 @@ urlpatterns = [
     path('api/indicators/', IndicatorsView.as_view(), name='indicators'),
     path('api/correlation/', CorrelationView.as_view(), name='correlation'),
     path('api/backtest/', BacktestView.as_view(), name='backtest'),
+    path('api/backtest/optimize/', BacktestOptimizeView.as_view(), name='backtest-optimize'),
     path('api/ranking/', RankingView.as_view(), name='ranking'),
     path('api/summary/', MarketSummaryView.as_view(), name='summary'),
+    path('api/category-impact/', CategoryImpactView.as_view(), name='category-impact'),
     path('api/portfolio/', PortfolioView.as_view(), name='portfolio'),
     path('api/portfolio/history/', PortfolioHistoryView.as_view(), name='portfolio-history'),
     path('api/', include(router.urls)),
+    path('healthz', healthz, name='healthz'),
     path('wiki/', WikiView.as_view(), name='wiki'),
     path('', DashboardView.as_view(), name='dashboard'),
 ]

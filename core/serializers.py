@@ -6,9 +6,19 @@ from core import constants
 
 
 class AssetSerializer(serializers.ModelSerializer):
+    # Convenience for the dashboard "earnings imminenti" badge: days from today
+    # to next_earnings_date (negative = stale past date awaiting refresh).
+    days_to_earnings = serializers.SerializerMethodField()
+
     class Meta:
         model = Asset
         fields = '__all__'
+
+    def get_days_to_earnings(self, obj):
+        if obj.next_earnings_date is None:
+            return None
+        from django.utils import timezone
+        return (obj.next_earnings_date - timezone.localdate()).days
 
 
 class PriceDataSerializer(serializers.ModelSerializer):

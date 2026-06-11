@@ -9,7 +9,13 @@ class Asset(models.Model):
     symbol = models.CharField(max_length=20, unique=True, primary_key=True, help_text="e.g., AAPL or SWDA.MI")
     name = models.CharField(max_length=255)
     asset_type = models.CharField(max_length=10, choices=ASSET_TYPES, default='Stock')
-    
+
+    # Earnings calendar (Phase 4 enrichment): next scheduled report date, if
+    # known. Refreshed in rotating daily batches by `refresh_earnings_calendar`
+    # (earnings_checked_at drives the rotation: oldest-checked first).
+    next_earnings_date = models.DateField(null=True, blank=True)
+    earnings_checked_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

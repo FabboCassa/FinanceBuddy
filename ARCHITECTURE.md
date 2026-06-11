@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-10 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 ✅ (paper trading + execution costs + live metrics + WebSocket; broker/multi-user deferred) · Phase 6 ✅ (educational wiki at `/wiki/`) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-06-11 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 ✅ (paper trading + execution costs + live metrics + WebSocket; broker/multi-user deferred) · Phase 6 ✅ (educational wiki at `/wiki/`) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -33,7 +33,7 @@ add/remove assets from the dashboard.
 | TA / math   | pandas + numpy (pure-pandas EMA/RSI/MACD + backtester; Backtrader/pandas-ta avoided — numpy 2.x) |
 | Frontend    | TailwindCSS, Alpine.js, TradingView Lightweight Charts v4.2.3 (CDN, pinned). Opens on a home/overview ("Panoramica": market summary via `/api/summary/`, latest alerts, Top Opportunità, Paper Trading); asset detail (chart, correlation, news, sandbox) shown on click |
 | Real-time   | Django Channels 4 + channels-redis + Daphne (ASGI) — WebSocket portfolio stream (Phase 5). redis-py pinned `>=5,<6`: dalla 6.x il read-timeout socket scatta sui comandi bloccanti (BZPOPMIN, 5s) di channels-redis → TimeoutError e drop del WebSocket ogni 5s |
-| Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat); web serves ASGI via Daphne |
+| Runtime     | Docker Compose (web, db, redis, celery_worker, celery_beat). **Prod-safe base** (`docker-compose.yml`: Daphne, no DB/Redis host ports, `restart: unless-stopped`, healthchecks, `DB_PASSWORD` required) + **dev override** (`docker-compose.override.yml`: runserver autoreload, DEBUG=True, ports 5435/6379 — merged automatically by `docker compose up`). Static files via WhiteNoise (`collectstatic` in entrypoint, web only). Deploy: GitHub Actions → tailnet → SSH (`.github/workflows/deploy.yml`) |
 
 ---
 
@@ -45,7 +45,10 @@ FinanceBuddy/
 ├── ROADMAP.md                 # Phased product roadmap
 ├── Dockerfile                 # App image; ENTRYPOINT = entrypoint.sh
 ├── entrypoint.sh              # Wait-for-DB → migrate → bootstrap → exec CMD
-├── docker-compose.yml         # 5-service orchestration; secrets via ${VAR} from .env (web on host 8001)
+├── docker-compose.yml         # PROD-SAFE base: Daphne, healthchecks, restart policy, no DB/Redis host ports
+├── docker-compose.override.yml# Dev-only overrides (runserver, DEBUG, host ports) — auto-merged locally
+├── .github/workflows/deploy.yml # Push to main → tailnet (ephemeral node) → SSH → pull + compose up
+├── DEPLOYMENT_PLAN.md         # Hosting/hardening plan (Oracle Always Free + Tailscale)
 ├── .env.example               # Committed env template (placeholders); real .env gitignored
 ├── manage.py                  # On `runserver`, auto-starts/stops the Compose stack (see docker_boot)
 ├── requirements.txt
@@ -62,7 +65,9 @@ FinanceBuddy/
     ├── indicators.py          # Phase 2: pure-pandas EMA/RSI/MACD compute helpers
     ├── correlation.py         # Phase 2: sentiment↔forward-return correlation (Pearson/Spearman)
     ├── alerts.py              # Phase 2: sentiment-threshold eval + multi-channel dispatch
-    ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester (delegates metrics → metrics.py)
+    ├── backtest.py            # Phase 3: pure pandas/numpy sentiment-strategy backtester + grid_search (train/test split) (delegates metrics → metrics.py)
+    ├── monitoring.py          # Ops: /healthz checks, task-failure→Telegram (cooldown), data-health summary/report
+    ├── category_impact.py     # Phase 4: per-category forward-impact stats (which themes move prices)
     ├── metrics.py             # Phase 3/5: shared equity-curve risk/return math (Sharpe/Sortino/drawdown/win-rate/buy-hold)
     ├── execution.py           # Phase 3/5: shared trade-cost model (commission + adverse slippage) for backtest + paper
     ├── relevance.py           # Phase 4: cold-start news categorization + forward price impact
@@ -80,7 +85,7 @@ FinanceBuddy/
     │   └── global_top500.csv  # Committed, yfinance-validated global top ~500 by market cap
     ├── views.py               # ViewSets (incl. AlertViewSet) + Indicators/Correlation/Backtest + Dashboard
     ├── tasks.py               # Celery tasks (incl. startup_catch_up) + ingest/scoring helpers
-    ├── migrations/            # 0001_initial, 0002_alert …
+    ├── migrations/            # 0001_initial … 0007_asset_earnings_calendar
     ├── management/commands/
     │   ├── bootstrap_assets.py  # Phase 1 idempotent seeding command
     │   └── data_status.py       # On-demand data-freshness report (prices/news/forward-impact)
@@ -109,7 +114,8 @@ Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique —
                     └─1:N─► PortfolioSnapshot mark-to-market equity over time
 ```
 
-- **Asset** — `symbol` (PK), `name`, `asset_type` (Stock|ETF).
+- **Asset** — `symbol` (PK), `name`, `asset_type` (Stock|ETF), `next_earnings_date`
+  + `earnings_checked_at` (earnings calendar, refreshed in rotating daily batches).
 - **PriceData** — OHLCV per `timestamp`; ordered by timestamp; indexed `(asset, timestamp)`.
 - **NewsArticle** — `title`, `source`, `url`, `extracted_text`, `sentiment_score`
   (−1.0…+1.0), `sentiment_label` (Positivo|Neutrale|Negativo). **Phase 4:**
@@ -160,8 +166,14 @@ Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique —
   opportunity score per asset → upsert AssetScore).
 - `run_paper_trading` — every 30 min (Phase 5: one virtual paper-trading cycle —
   apply the sentiment strategy forward, open/close positions, snapshot equity).
+- `refresh_earnings_calendar` — daily 07:10 (rotating `EARNINGS_REFRESH_BATCH`
+  slice, oldest-checked first → next_earnings_date via yfinance `.calendar`).
+- `send_health_report` — weekly Mon 08:00 (data-freshness report → Telegram).
 - `startup_catch_up` — **event-driven** (on `worker_ready`, not periodic): one-off
   gap-recovery pipeline run when the service comes online (see §6).
+
+Celery `task_failure` signal → [core/monitoring.py](core/monitoring.py) pushes a
+Telegram ops alert (per-task cooldown `MONITORING_FAILURE_COOLDOWN_MIN`).
 
 ---
 
@@ -184,6 +196,11 @@ web (DRF) ──reads──► PostgreSQL ──JSON──► dashboard.html (ch
    /api/portfolio/history/ → PortfolioSnapshot equity curve
    ws/portfolio/     → WebSocket: same snapshot pushed live after each paper cycle
    /api/alerts/      → reads fired Alert rows
+   /api/category-impact/ → category_impact.category_impact(category × forward_impact)
+                       → which news themes move prices (home card; ?asset= optional)
+   /api/backtest/optimize/ → backtest.grid_search(prices, news) → top param combos
+                       ranked on train Sharpe with out-of-sample test metrics
+   /healthz          → monitoring.health_status (DB+Redis liveness, 200/503; no auth)
    /wiki/            → static educational wiki page (WikiView; deep-link anchors
                        are the targets of the dashboard's contextual ℹ︎ icons)
 beat ─► compute_rankings → ranking.rank_assets(per-asset sentiment+technical+momentum) → AssetScore upsert
@@ -209,8 +226,9 @@ are excluded, so the matrix populates as history accumulates.
 
 ### Startup (every container boot, via `entrypoint.sh`)
 1. Wait for Postgres.
-2. `web` only: `migrate` (`RUN_MIGRATIONS=True`) → `bootstrap_assets --no-sentiment` (`RUN_BOOTSTRAP=True`).
-3. `exec` the service command.
+2. `web` only: `migrate` (`RUN_MIGRATIONS=True`) → `collectstatic` (`RUN_COLLECTSTATIC=True`,
+   for WhiteNoise under DEBUG=False) → `bootstrap_assets --no-sentiment` (`RUN_BOOTSTRAP=True`).
+3. `exec` the service command (prod: Daphne ASGI; dev override: runserver).
 
 Bootstrap is **idempotent** (get_or_create + upsert) — safe on every boot.
 
@@ -254,6 +272,13 @@ analyzes the missed window, independent of Celery beat timing.
    NLI categorization falls back to the keyword classifier (`USE_ZERO_SHOT_NLP`
    flag); a failing alert channel is logged and skipped without blocking the others.
 8. **Single owner for migrations/bootstrap** (the `web` service) to avoid races.
+9. **Production-safe defaults.** `DEBUG` defaults to **False**; `SECRET_KEY` is
+   **required** when DEBUG=False (startup fails loudly otherwise); `ALLOWED_HOSTS`/
+   `CSRF_TRUSTED_ORIGINS`/`SECURE_COOKIES` are env-driven; `DB_PASSWORD` has **no
+   default** (compose refuses to start without it). Dev convenience lives only in
+   `docker-compose.override.yml` + the local `.env` — the committed base compose is
+   safe to run on a public VM. Never expose Postgres/Redis host ports in production;
+   app access goes through the tailnet (no public ports).
 
 ---
 
@@ -352,6 +377,17 @@ analyzes the missed window, independent of Celery beat timing.
     `compute_rankings` task into `AssetScore` (snapshot, fast reads), served at
     `/api/ranking/`, and shown as a prominent dashboard leaderboard (Migliori /
     Peggiori, click-to-open). Labeled "not investment advice". Pure + DB tests.
+  - ✅ **Category-impact analysis (pre-rung-3 measurement).**
+    [core/category_impact.py](core/category_impact.py) crosses the stored
+    `category` × `forward_impact` fields into per-theme stats (mean |return|,
+    signed mean, "mover" rate at +1/3/7d vs `CATEGORY_IMPACT_MOVE_THRESHOLD_PCT`).
+    Served at `/api/category-impact/` (`?asset=` optional) and shown as the
+    "Quali temi muovono i prezzi" home card. Pure + endpoint tests.
+  - ✅ **Earnings calendar.** `Asset.next_earnings_date`/`earnings_checked_at`
+    (migration 0007), refreshed by the daily `refresh_earnings_calendar` task in
+    rotating batches (yfinance `.calendar`, both dict and legacy DataFrame
+    shapes); `days_to_earnings` in the Asset API; amber "Earnings tra Xg" badge
+    in the asset detail header. Pure + DB/mock tests.
   - ⚠️ **REMINDER — rung 3 of 3 is DEFERRED, not done.** The self-supervised
     relevance classifier fine-tuned on the accumulated `forward_impact` labels —
     **the core of the self-calibration vision** — still has to be built. It was
@@ -411,6 +447,18 @@ analyzes the missed window, independent of Celery beat timing.
     on-demand/intermittently — incompatible with a live broker bot. Multi-user
     only matters alongside per-user broker keys (single-user self-hosted → YAGNI).
     Revisit both only if/when going live with real money.
+- **Ops / server readiness ✅ (2026-06-11)**
+  - `/healthz` liveness endpoint (DB+Redis, 200/503) for external uptime monitors.
+  - Celery `task_failure` → Telegram ops alert with per-task cooldown
+    ([core/monitoring.py](core/monitoring.py), registered in `CoreConfig.ready()`).
+  - Weekly data-health Telegram report (`send_health_report`, Mon 08:00) sharing
+    its aggregation with the `data_status` management command.
+  - Grid search "Ottimizza" in the Strategy Sandbox: `backtest.grid_search`
+    (chronological train/test split, ranked on train Sharpe, out-of-sample
+    metrics alongside; click-to-apply params), `/api/backtest/optimize/`.
+  - Compose `mem_limit` per service (worker 8g for FinBERT) + daily
+    [scripts/backup_db.sh](scripts/backup_db.sh) (pg_dump, 14-day rotation,
+    `backup/` gitignored).
 - **Phase 6 — Knowledge Base / educational wiki ✅**
   - ✅ `/wiki/` route (`WikiView`, static template
     [core/templates/core/wiki.html](core/templates/core/wiki.html)) with the
