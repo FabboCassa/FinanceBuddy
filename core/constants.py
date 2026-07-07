@@ -13,8 +13,18 @@ DEFAULT_ASSETS = (
 )
 
 # Periodic (15-min) price refresh: dense, recent data for live charts.
-RECENT_PRICE_PERIOD = '30d'
+# The window is GAP-AWARE (see tasks.recent_price_period): each run pulls only
+# enough days to cover the gap since the newest stored bar, clamped to
+# [MIN, MAX] days, instead of blindly re-pulling the full window every cycle.
+# Rationale: a blind 30d/1h pull of the ~500-asset universe means ~100k bar
+# upserts + heavy yfinance throttling → a ~9-minute fetch that on-demand
+# sessions kill mid-run, so prices never advance. Up-to-date → a couple of days
+# (seconds); a long offline gap still pulls up to MAX, preserving gap recovery.
 RECENT_PRICE_INTERVAL = '1h'
+RECENT_PRICE_MIN_DAYS = 2      # floor: always re-pull the last couple of days
+RECENT_PRICE_BUFFER_DAYS = 2   # overlap added on top of the measured gap
+RECENT_PRICE_MAX_DAYS = 30     # cap (== the old fixed window); full gap recovery
+RECENT_PRICE_PERIOD = f'{RECENT_PRICE_MAX_DAYS}d'  # back-compat / bootstrap default
 
 # Fallback when intraday data is unavailable for an asset.
 FALLBACK_PRICE_PERIOD = '90d'
@@ -286,9 +296,32 @@ RSS_MAX_ENTRIES_PER_FEED = 40
 # yfinance prices are fetched in batches (one multi-ticker download per batch)
 # instead of one call per asset, so a 500-name universe stays tractable.
 PRICE_FETCH_BATCH_SIZE = 50
+# Rows per bulk ON CONFLICT upsert of PriceData (see tasks._persist_history).
+# 1000 rows × 6 fields = 6k bind params, well under Postgres' 65535 limit.
+PRICE_UPSERT_BATCH_SIZE = 1000
+# Hard cap (seconds) on each batched yfinance download. Without it a hung or
+# rate-limited request blocks the whole price refresh indefinitely — and because
+# fetch_market_data is the first step of startup_catch_up, that hang stalls the
+# entire catch-up pipeline (the bug that left fetch_market_data never completing).
+PRICE_FETCH_TIMEOUT = 30
 # yfinance per-ticker NEWS doesn't batch, so each cycle only a random sample of
 # assets is polled that way; the broad universe gets news via RSS + NER instead.
 YFINANCE_NEWS_MAX_ASSETS_DEFAULT = 40
+
+# -- Universe refresh (add newly-large / newly-listed companies) ------------
+# The committed global_top500.csv is a point-in-time snapshot: it never picks
+# up new listings or names that grew into the top ranks. `refresh_universe`
+# (monthly) re-pulls the live top-N by market cap from companiesmarketcap.com
+# — the same source the CSV came from — and seeds the newcomers (validated on
+# yfinance first). Tickers are read from the per-row logo filename
+# (…/company-logos/64/NVDA.png), which already carries yfinance-style suffixes
+# (2222.SR, 9988.HK). Names that fell out of the top-N are reported, not
+# deleted (price/news history is preserved).
+UNIVERSE_TARGET_SIZE = 500
+UNIVERSE_SOURCE_URL = 'https://companiesmarketcap.com/?page={page}'
+UNIVERSE_SOURCE_MAX_PAGES = 6        # ~100 rows/page → top ~500 (+1 page buffer)
+UNIVERSE_SOURCE_TIMEOUT = 20         # per-page HTTP timeout (seconds)
+UNIVERSE_SOURCE_USER_AGENT = 'Mozilla/5.0 (compatible; FinanceBuddy/1.0 universe-refresh)'
 
 # -- Phase 4: composite "Top Opportunità" ranking ---------------------------
 # A transparent 0–100 opportunity score per asset, blending sentiment level,

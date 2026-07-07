@@ -9,6 +9,7 @@ from django.conf import settings
 from celery import shared_task
 from celery.signals import worker_ready
 import yfinance as yf
+import pandas as pd
 
 from core.models import (
     Asset, PriceData, NewsArticle,
@@ -80,32 +81,77 @@ def seed_default_assets():
 
 
 def _persist_history(asset, hist):
-    """Upsert a yfinance history DataFrame into PriceData. Returns (created, updated)."""
-    created_count = 0
-    updated_count = 0
+    """Upsert a yfinance history DataFrame into PriceData. Returns (created, updated).
+
+    Uses a single bulk ON CONFLICT upsert instead of one update_or_create per
+    row: a 30d/1h pull of the ~500-asset universe is ~100k rows, and a
+    roundtrip-per-row made the price refresh take minutes (so on-demand sessions
+    killed it mid-run). One bulk_create(update_conflicts=True) per asset
+    collapses that to a handful of statements. The created/updated split (a
+    freshness signal in the logs) is kept by first reading which timestamps
+    already exist.
+    """
+    seen = {}
     for index, row in hist.iterrows():
         dt = index.to_pydatetime()
         if timezone.is_naive(dt):
             dt = timezone.make_aware(dt, timezone.get_current_timezone())
         else:
             dt = timezone.localtime(dt)
+        if any(pd.isna(row.get(c)) for c in ('Open', 'High', 'Low', 'Close', 'Volume')):
+            continue  # yfinance can emit a partial/NaN bar; skip it, don't abort the asset
+        seen[dt] = row
+    if not seen:
+        return 0, 0
 
-        _, created = PriceData.objects.update_or_create(
-            asset=asset,
-            timestamp=dt,
-            defaults={
-                'open': row['Open'],
-                'high': row['High'],
-                'low': row['Low'],
-                'close': row['Close'],
-                'volume': int(row['Volume']),
-            },
+    existing = set(
+        PriceData.objects.filter(asset=asset, timestamp__in=list(seen))
+        .values_list('timestamp', flat=True)
+    )
+    objs = [
+        PriceData(
+            # float() coerces numpy dtypes (int64/float64) to a plain Python
+            # number: bulk_create's SQL path can't cast numpy.int64 -> Decimal,
+            # unlike the per-row save() path the old code relied on.
+            asset=asset, timestamp=dt,
+            open=float(row['Open']), high=float(row['High']),
+            low=float(row['Low']), close=float(row['Close']),
+            volume=int(row['Volume']),
         )
-        if created:
-            created_count += 1
-        else:
-            updated_count += 1
-    return created_count, updated_count
+        for dt, row in seen.items()
+    ]
+    PriceData.objects.bulk_create(
+        objs,
+        update_conflicts=True,
+        unique_fields=['asset', 'timestamp'],
+        update_fields=['open', 'high', 'low', 'close', 'volume'],
+        batch_size=constants.PRICE_UPSERT_BATCH_SIZE,
+    )
+    created = sum(1 for dt in seen if dt not in existing)
+    return created, len(objs) - created
+
+
+def _recent_period_days(latest, now):
+    """Gap-aware day count for the frequent price refresh (pure, testable).
+
+    latest is the newest stored bar timestamp (or None). Returns the days to
+    re-pull: the gap since latest plus a small overlap buffer, clamped to
+    [RECENT_PRICE_MIN_DAYS, RECENT_PRICE_MAX_DAYS]. No history yet -> the cap.
+    Keeps the steady-state tick tiny while still covering a long offline gap.
+    """
+    if latest is None:
+        return constants.RECENT_PRICE_MAX_DAYS
+    gap = (now - latest).days
+    return min(max(gap + constants.RECENT_PRICE_BUFFER_DAYS,
+                   constants.RECENT_PRICE_MIN_DAYS),
+               constants.RECENT_PRICE_MAX_DAYS)
+
+
+def recent_price_period():
+    """yfinance period string for the gap-aware recent price refresh."""
+    latest = (PriceData.objects.order_by('-timestamp')
+              .values_list('timestamp', flat=True).first())
+    return f"{_recent_period_days(latest, timezone.now())}d"
 
 
 def fetch_prices_batched(assets, period, interval, batch_size=None):
@@ -126,16 +172,29 @@ def fetch_prices_batched(assets, period, interval, batch_size=None):
         batch = symbols[start:start + batch_size]
         try:
             data = yf.download(batch, period=period, interval=interval,
-                               group_by='ticker', threads=True, progress=False)
+                               group_by='ticker', threads=True, progress=False,
+                               timeout=constants.PRICE_FETCH_TIMEOUT)
         except Exception as e:
             logger.error(f"Batch price download failed ({batch[0]}…+{len(batch)-1}): {e}")
             continue
+        multi = isinstance(data.columns, pd.MultiIndex)
         for symbol in batch:
             try:
-                sub = data[symbol] if len(batch) > 1 else data
+                if multi:
+                    if symbol not in data.columns.get_level_values(0):
+                        empty += 1
+                        continue
+                    sub = data[symbol]
+                else:
+                    sub = data
                 sub = sub.dropna(how='all')
                 if sub.empty:
                     empty += 1
+                    continue
+                missing = {'Open', 'High', 'Low', 'Close', 'Volume'} - set(sub.columns)
+                if missing:
+                    logger.warning("Price persist skipped for %s: missing columns %s.",
+                                   symbol, sorted(missing))
                     continue
                 with_data += 1
                 c, u = _persist_history(by_symbol[symbol], sub)
@@ -690,7 +749,7 @@ def fetch_market_data():
 
     created, updated = fetch_prices_batched(
         assets,
-        period=constants.RECENT_PRICE_PERIOD,
+        period=recent_price_period(),
         interval=constants.RECENT_PRICE_INTERVAL,
     )
     # Freshness snapshot: total bars stored + newest timestamp. Watching the
@@ -840,6 +899,13 @@ def refresh_earnings_calendar():
     logger.info("Earnings calendar: refreshed %s assets (%s with a known date).",
                 len(batch), updated)
     return updated
+
+
+@shared_task
+def refresh_universe():
+    """Monthly task: pick up newly-large / newly-listed companies by market cap."""
+    from core.universe_refresh import refresh_universe_members
+    return refresh_universe_members()
 
 
 @shared_task

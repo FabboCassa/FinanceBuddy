@@ -229,6 +229,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'core.tasks.refresh_earnings_calendar',
         'schedule': crontab(hour=7, minute=10),
     },
+    # Universe refresh: pick up newly-large / newly-listed companies monthly
+    # (1st of the month, 06:30) so the tracked set tracks the live top ~500.
+    'refresh-universe-monthly': {
+        'task': 'core.tasks.refresh_universe',
+        'schedule': crontab(day_of_month='1', hour=6, minute=30),
+    },
 }
 
 # Sentiment NLP flag

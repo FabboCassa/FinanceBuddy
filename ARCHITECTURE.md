@@ -5,7 +5,7 @@
 > same change-set as any structural change** (new module, model, task, service,
 > dependency, or convention). See [Maintenance Rule](#-maintenance-rule).
 
-**Last updated:** 2026-06-11 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 ✅ (paper trading + execution costs + live metrics + WebSocket; broker/multi-user deferred) · Phase 6 ✅ (educational wiki at `/wiki/`) (see [ROADMAP.md](ROADMAP.md))
+**Last updated:** 2026-07-07 · **Roadmap phase:** Phase 1 ✅ · Phase 2 ✅ · Phase 3 ✅ · Phase 4 🚧 (relevance + source quality + NER/RSS; **rung 3 self-supervised classifier deferred — see §8 reminder**) · Phase 5 ✅ (paper trading + execution costs + live metrics + WebSocket; broker/multi-user deferred) · Phase 6 ✅ (educational wiki at `/wiki/`) (see [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -75,6 +75,7 @@ FinanceBuddy/
     ├── entities.py            # Phase 4: entity linking (NER) — attribute articles to tracked assets
     ├── rss.py                 # Phase 4: RSS feed fetch + entry normalization (feedparser, lazy import)
     ├── universe.py            # Phase 4: load the asset universe (global top ~500) from data CSV
+    ├── universe_refresh.py    # Phase 4+: refresh the universe from a live market-cap ranking (pure parse + diff; add newcomers)
     ├── ranking.py             # Phase 4: composite "Top Opportunità" score (sentiment+momentum+technical+price)
     ├── paper_trading.py       # Phase 5: pure paper-trading engine (latest signal, position sizing)
     ├── portfolio.py           # Phase 5: shared portfolio read model (payload for REST + WebSocket)
@@ -88,7 +89,8 @@ FinanceBuddy/
     ├── migrations/            # 0001_initial … 0007_asset_earnings_calendar
     ├── management/commands/
     │   ├── bootstrap_assets.py  # Phase 1 idempotent seeding command
-    │   └── data_status.py       # On-demand data-freshness report (prices/news/forward-impact)
+    │   ├── data_status.py       # On-demand data-freshness report (prices/news/forward-impact)
+    │   └── refresh_universe.py  # On-demand universe refresh (add newly-large/newly-listed names)
     ├── tests/                 # Unit tests (test_indicators.py, test_backtest.py, test_wiki.py …)
     └── templates/core/
         ├── dashboard.html     # Single-page dashboard (links into the wiki via ℹ︎ anchors)
@@ -154,7 +156,24 @@ Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique —
 
 ### Periodic schedule (`settings.CELERY_BEAT_SCHEDULE`)
 - `fetch_market_data` — every 15 min (recent prices, batched multi-ticker
-  `yf.download` so the ~500-asset universe stays tractable).
+  `yf.download` so the ~500-asset universe stays tractable). The window is
+  **gap-aware** (`recent_price_period` / pure `_recent_period_days`): each run
+  pulls only the days since the newest stored bar + a small buffer, clamped to
+  `[RECENT_PRICE_MIN_DAYS, RECENT_PRICE_MAX_DAYS]` (2..30d), instead of blindly
+  re-pulling the full 30d/1h window every cycle. A blind 30d pull meant ~100k
+  bar upserts + heavy yfinance throttling → a ~9-minute fetch that on-demand
+  sessions (opened for a couple of minutes, then shut down) killed mid-run, so
+  prices never advanced; the steady-state tick now pulls ~2d (seconds) while a
+  long offline gap still recovers up to the cap. Each batch download is bounded
+  by `PRICE_FETCH_TIMEOUT` and the per-symbol persist tolerates dead tickers
+  (single-ticker MultiIndex / missing OHLCV columns are skipped with a warning;
+  transient yfinance "possibly delisted" throttle errors self-heal next run) so
+  a hung or delisted symbol can no longer stall the refresh — and, via
+  `startup_catch_up`, the whole catch-up pipeline (which also wraps the price
+  step in try/except). Persistence is a single bulk `ON CONFLICT` upsert per
+  asset (`_persist_history` → `bulk_create(update_conflicts=True)`,
+  `PRICE_UPSERT_BATCH_SIZE`) instead of a roundtrip-per-row `update_or_create`,
+  so even a full-window pull is a handful of statements, not ~100k.
 - `fetch_news` — every 30 min → a capped random sample of assets via yfinance
   per-ticker news (`YFINANCE_NEWS_MAX_ASSETS`) + curated RSS feeds
   (`RSS_INGEST_ENABLED`, linked to assets via NER) → chains `analyze_sentiment`.
@@ -168,6 +187,13 @@ Portfolio (Phase 5) ─1:N─► Position          (portfolio, asset) unique —
   apply the sentiment strategy forward, open/close positions, snapshot equity).
 - `refresh_earnings_calendar` — daily 07:10 (rotating `EARNINGS_REFRESH_BATCH`
   slice, oldest-checked first → next_earnings_date via yfinance `.calendar`).
+- `refresh_universe` — monthly (1st, 06:30): pulls the live top-N by market cap
+  from companiesmarketcap.com ([core/universe_refresh.py](core/universe_refresh.py)),
+  diffs it against tracked assets, validates each newcomer on yfinance and seeds
+  the valid ones (idempotent; deep-backfills their history). Names that fell out
+  of the top-N are reported, **not deleted** (price/news history preserved).
+  Keeps the frozen `global_top500.csv` snapshot from going stale (new listings /
+  risers). Also runnable on demand: `manage.py refresh_universe`.
 - `send_health_report` — weekly Mon 08:00 (data-freshness report → Telegram).
 - `startup_catch_up` — **event-driven** (on `worker_ready`, not periodic): one-off
   gap-recovery pipeline run when the service comes online (see §6).
@@ -370,6 +396,10 @@ analyzes the missed window, independent of Celery beat timing.
     deep-backfills only assets without history (no re-upsert every boot); yfinance
     per-ticker news capped to a random sample per cycle (`YFINANCE_NEWS_MAX_ASSETS`),
     with the broad universe covered by RSS + NER. Users can still add/remove assets.
+    The CSV is a point-in-time snapshot; the monthly `refresh_universe` task
+    ([core/universe_refresh.py](core/universe_refresh.py)) keeps membership live —
+    it re-pulls the current top-N by market cap, validates newcomers on yfinance
+    and seeds them (dropouts reported, not deleted).
   - ✅ **Composite "Top Opportunità" ranking.** [core/ranking.py](core/ranking.py)
     blends sentiment level + sentiment momentum + a technical read (RSI/MACD) +
     price momentum into a transparent 0–100 score per asset (weights/windows in
